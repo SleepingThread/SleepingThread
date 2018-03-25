@@ -24,6 +24,19 @@ Or you need to create input_tmpl:
         ...
     }
 
+Or you need to create input_tmpl as list:
+    input_tmpl = [
+        ("help",(
+            False,
+            "head help description"
+        )),
+        ("varname",(
+            "default_value",
+            "description"
+        )), 
+        ...
+    ]
+
     input_arguments = readInputArguments(input_tmpl)
 
     Use cmd options as: --varname <varvalue>
@@ -148,9 +161,11 @@ def readInputArguments(input_tmpl,args=None):
     err = []
     if cmdisinarray("--help",args)!=-1:
         _print_help(input_tmpl,input_tmpl_list)
-        #input_arguments["--help"] = True
+        input_arguments["--help"] = True
     
     for key in input_tmpl:
+        if key=="help":
+            continue
         _type = _gettype(input_tmpl[key][0])
         if _type=='none':
             print "key: "+key+" - wrong type" 
