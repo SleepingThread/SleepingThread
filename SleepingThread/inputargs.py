@@ -162,6 +162,8 @@ def readInputArguments(input_tmpl,args=None):
     if cmdisinarray("--help",args)!=-1:
         _print_help(input_tmpl,input_tmpl_list)
         input_arguments["--help"] = True
+    else:
+        input_arguments["--help"] = False
     
     for key in input_tmpl:
         if key=="help":
