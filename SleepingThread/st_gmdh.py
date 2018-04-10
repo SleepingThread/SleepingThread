@@ -1,36 +1,33 @@
 import numpy as np
-from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.base import BaseEstimator, RegressorMixin, ClassifierMixin, clone
 from sklearn.model_selection import ShuffleSplit
 from sklearn.linear_model import LinearRegression
 
 #Group Method of Data Handling
-class GMDH(BaseEstimator,ClassifierMixin):
+class GMDH(BaseEstimator,RegressorMixin):
     """
     Feature selection algorithm based on cross-validation
     """
-    def __init__(self,trainer=LinearRegression,trainer_params=(),cross_val = ShuffleSplit ,cross_val_params=((),{})):
-        BaseEstimator.__init__(self)
-        ClassifierMixin.__init__(self)
+    def __init__(self,estimator=LinearRegression(),\
+            cv=ShuffleSplit(n_splits=20,test_size=0.2,random_state=0)):
 
-        self.trainer_class = trainer
-        self.trainer_params = trainer_params
-        self.cross_val = cross_val
-        self.cross_val_params = cross_val_params
+        self.estimator = estimator
+        self.cv = cv
+
         self.features_list = None
         self.trainer = None
 
         return
 
-    def cv_score(self,data,target,trainer,trainer_params=(),cross_val = ShuffleSplit,cross_val_params = ((),{})):
+    def cv_score(self,data,target):
         """
         return mean trainer score
         """
         score = 0.0
-        trainer_class = trainer
         
         data = np.asarray(data)
         target = np.asarray(target)
-        cv = cross_val(*cross_val_params[0],**cross_val_params[1])
+        cv = self.cv
        
         result = []
         for trainset, testset in cv.split(target):
@@ -41,7 +38,7 @@ class GMDH(BaseEstimator,ClassifierMixin):
             target_test = target[testset]
 
             #initialize trainer
-            trainer = trainer_class(*trainer_params)
+            trainer = clone(self.estimator)
             trainer.fit(data_train,target_train)
             result.append(trainer.score(data_test,target_test))
             #score += trainer.score(data_test,target_test)
@@ -86,7 +83,7 @@ class GMDH(BaseEstimator,ClassifierMixin):
                 newdata = data[:,new_features]
 
                 #train model
-                trainer = self.trainer_class(*self.trainer_params)
+                trainer = clone(self.estimator)
                 trainer.fit(newdata,target)
                 cur_acc = trainer.score(newdata,target)
 
@@ -102,8 +99,7 @@ class GMDH(BaseEstimator,ClassifierMixin):
             #prepare new data - select features
             newdata = data[:,new_features]
 
-            cv_score_new = self.cv_score(newdata,target,trainer = self.trainer_class,
-                    trainer_params = self.trainer_params, cross_val = self.cross_val,cross_val_params = self.cross_val_params)
+            cv_score_new = self.cv_score(newdata,target)
 
             cv_score_max = max(cv_score_max,cv_score_new[3])
             # print "cv_score_new: ",cv_score_new,len(new_features)
@@ -111,7 +107,7 @@ class GMDH(BaseEstimator,ClassifierMixin):
                 #we cv value decrease
                 #if cv_score_new[3]<0.97*cv_score_max:
                 break
-            
+           
             features_list.append(best_feature)
             cv_score_old = cv_score_new
 
@@ -123,7 +119,7 @@ class GMDH(BaseEstimator,ClassifierMixin):
         self.features_list = features_list
 
         #make appropriate trainer
-        trainer = self.trainer_class(*self.trainer_params)
+        trainer = clone(self.estimator)
         new_data = data[:,features_list]
         trainer.fit(new_data,target)
         self.trainer = trainer

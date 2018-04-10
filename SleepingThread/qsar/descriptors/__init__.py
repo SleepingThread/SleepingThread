@@ -1,8 +1,4 @@
 # -*- coding: utf-8 -*-
-##
-#@file __init__.py
-##
-
 """
 
 Examples of using pybel:
@@ -406,7 +402,60 @@ def test_createImage():
 #========================================================
 
 from sklearn.decomposition import PCA
+from sklearn.cluster import KMeans, DBSCAN
 import sys
+
+def createSklearnData(points_list,prop_list):
+    """
+    Create data appropriate for sklearn estimators, where
+        X[i] - features for single sample
+    """
+    # check dimensions
+    if len(points_list) != len(prop_list):
+        raise Exception("len(points_list) must be equal len(prop_list)")
+
+    X = [[points_list[i], prop_list[i]] for i in xrange(len(points_list))]
+    return X
+
+def _dataFromSurface(points,props,scale=50.0):
+    data = []
+    for i in xrange(len(points)):
+        data.append([points[i][0],points[i][1],points[i][2],props[i]/scale])
+    return np.asarray(data)
+
+def segmentSurface(points_list,prop_list,n_clusters=10,verbose=0,scale=50.0,
+        random_state=None):
+    """
+    return list[ list [ <cluster label for surface point> ] ]
+        list[i] - list of labels
+
+    """
+    mol_n = len(points_list)
+    segment_list = []
+    
+    # create data
+    for molind in xrange(mol_n):
+        if verbose > 0:
+            sys.stdout.write("\rmol: "+str(molind))
+        points = points_list[molind]
+        props = prop_list[molind]
+
+        data = _dataFromSurface(points,props,scale=scale)
+        
+        #dbscan = DBSCAN()
+        #dbscan.fit(data)
+        #segment_list.append(dbscan.labels_)
+        
+        kmeans = KMeans(n_clusters=n_clusters,random_state=random_state)
+        kmeans.fit(data)
+        
+        segment_list.append(kmeans.labels_)
+        
+    if verbose>0:
+        sys.stdout.write("\n")
+        
+    return np.asarray(segment_list)
+
 
 def _calculateProjection(points, axis):
     projection = []
@@ -508,6 +557,276 @@ def createSP(points_list,prop_list,segment_list,verbose=0,imsize=(5,5)):
         sys.stdout.write("\n")
 
     return sp_list
+
+
+class SPType(object):
+    """
+    Class for feature (special points) classification
+    Assign integer type for each special point
+
+    Write class like in sklearn.cluster.KMeans
+    
+    Class assign types to special points in molecules
+    """
+    def __init__(self,n_image_clusters=10,n_prop_clusters=3):
+        self.n_image_clusters = n_image_clusters
+        self.n_prop_clusters = n_prop_clusters
+        
+        # clusterizators
+        self.image_clust_ = None
+        self.prop_clust_ = []
+        
+        self.type_dict_ = None
+        
+        self.labels_ = None
+        
+        self.n_types_ = None
+        
+        return
+    
+    def fit(self,X):
+        """
+        Input: spdata = X[<molecule_ind>][<special_point_ind>]
+        spdata[0] - image
+        spdata[1] - center of cluster
+        spdata[2] - average property value
+        
+        Algorithm:
+            1) Calculate clusterization of images
+            2) For each image type calculate clusters for spdata[2] scalar
+            3) After steps 1,2 we have to types 
+            4) Create dictionary with type pairs
+            5) Assign pair to each pair in dictionary
+        """
+        
+        # select images, props  from X
+        images = []
+        props = []
+        for mol_sp_pts in X:
+            for sp in mol_sp_pts:
+                images.append(sp[0])
+                props.append([sp[2]])
+            
+        images = np.asarray(images)
+        props = np.asarray(props)
+            
+        # image clusterizator
+        self.image_clust_ = KMeans(n_clusters=self.n_image_clusters,random_state=0,max_iter=500,n_init=20)
+        self.image_clust_.fit(images.reshape(-1,images.shape[1]*images.shape[2]))
+        
+        # get images type
+        images_type = self.image_clust_.labels_
+        
+        # property clusterizators
+        self.prop_clust_ = [] # self.n_image_clusters*[KMeans(n_clusters=self.n_prop_clusters)]
+        
+        # select property for each image cluster
+        for im_clust in xrange(self.n_image_clusters):
+            # select properties for image type im_clust
+            im_props = props[images_type == im_clust]
+            
+            # warning 
+            if len(im_props)<self.n_prop_clusters:
+                print "SPType warning: im_clust: "+str(im_clust)+" have only "+str(len(im_props))+" properties"
+                
+            self.prop_clust_.append( KMeans(n_clusters=min(self.n_prop_clusters,len(im_props)),random_state=0) )
+            
+            # fit property clusterizator
+            self.prop_clust_[im_clust].fit(im_props)
+            
+        # add all types to dictionary
+        self.type_dict_ = {}
+        
+        _counter = 0
+        for i in xrange(self.n_image_clusters):
+            for j in xrange(self.n_prop_clusters):
+                self.type_dict_[(i,j)] = _counter
+                _counter += 1        
+                
+        self.n_types_ = _counter
+                
+        # make labels
+        self.labels_ = self.predict(X)
+                
+        return
+    
+    def predict(self,X):
+        """
+        Algorithm:
+            1) Find image type
+            2) Using classificator for this image type:
+                find type of property
+            3) Using dictionary:
+                find type of type pair
+        """
+        
+        sp_types = []
+        for mol_sp_pts in X:
+            mol_sp_types = []
+            sp_types.append(mol_sp_types)
+            for sp in mol_sp_pts:
+                _im_type = self.image_clust_.predict([sp[0].reshape(sp[0].shape[0]*sp[0].shape[1])])[0]
+                _prop_type = self.prop_clust_[_im_type].predict([[sp[2]]])[0]
+                
+                if (_im_type,_prop_type) in self.type_dict_:
+                    mol_sp_types.append(self.type_dict_[(_im_type,_prop_type)])
+                else:
+                    mol_sp_types.append(-1)
+        
+        return np.asarray(sp_types)
+
+def createDescriptors(X,sptype):
+    """
+    create np.ndarray(len(X),sptype.n_types_)
+    """
+    mat = np.zeros((len(X),sptype.n_types_),dtype=np.float64)
+    
+    _sp_labels = sptype.predict(X)
+    
+    for mol_ind in xrange(len(X)):
+        mol_sp_pts = X[mol_ind]
+        _mol_sp_labels = _sp_labels[mol_ind]
+        for sp_ind in xrange(len(mol_sp_pts)):
+            _sp_label = _mol_sp_labels[sp_ind]
+            if _sp_label != -1:
+                mat[mol_ind][_mol_sp_labels[sp_ind]] += 1
+            
+    return mat
+
+
+#========================================================
+# Work with 
+#========================================================
+
+def createSPGeneratorData(points_list,prop_list):
+    """
+    Create data only from full set
+    [{"id":0,"data":[mol_points,mol_props]}]
+    """
+    data = []
+    if len(points_list) != len(prop_list):
+        raise Exception("!!!")
+        
+    for i in xrange(len(points_list)):
+        data.append({"id":i,"data":[points_list[i],prop_list[i]]})
+        
+    return data
+
+def generator_fun(mol_data,mol_id,n_sp_clusters,imsize):
+    points_list = [mol_data[0]]
+    prop_list = [mol_data[1]]
+    # @TODO I Forget about scale in segmentSurface
+    segment_list = segmentSurface(points_list,prop_list,verbose=0,n_clusters=n_sp_clusters,random_state=0)
+    sp_list = createSP(points_list,prop_list,segment_list,verbose=0,imsize=(imsize,imsize))
+    
+    return (mol_id,sp_list[0])
+
+import pickle, os
+from sklearn.externals.joblib import Parallel, delayed
+
+class SPGenerator(object):
+    def __init__(self,generator_fun=generator_fun,filename=None,verbose=0,n_jobs=1,readonly=True):
+        """
+        sp[<param_ind>][<imsize>][<mol_ind>] = <sp for molecule param_ind and imsize>
+        generator_fun - function, that generates sp (Special point) for single molecule
+        """
+        self.generator_fun = generator_fun
+        self.filename = filename
+        self.n_jobs = n_jobs
+        self.verbose = verbose
+        self.readonly = readonly
+        
+        if filename is not None and os.path.isfile(self.filename):
+            fin = open(self.filename,"rb")
+            if self.verbose > 0:
+                print "SPGenerator loading data ... "
+            self.sp = pickle.load(fin)
+            fin.close()
+        else:
+            self.sp = {}
+            
+        return
+    
+    def getsp(self,data,n_sp_clusters,imsize):
+        """
+        data[i] = {"id":0,"data":[mol_points, mol_props]}
+        """
+        result = []
+      
+        if not self.readonly:
+            self.generate(data,n_sp_clusters,imsize)
+
+        cur_sp = self.sp[n_sp_clusters][imsize]
+            
+        for mol_data in data:                
+            result.append(cur_sp[mol_data["id"]])
+        
+        return result
+
+    def generate(self,data,n_sp_clusters,imsize):
+        """
+        """
+        
+        if isinstance(n_sp_clusters,list):
+            for n in n_sp_clusters:
+                if isinstance(imsize,list):
+                    for ims in imsize:
+                        self.generate(data,n,ims)
+                else:
+                    self.generate(data,n,imsize)
+        else:   
+            if self.verbose > 0:
+                print "Generate (",n_sp_clusters,imsize,"). len(data): ",len(data)
+            
+            
+            if n_sp_clusters not in self.sp:
+                cur_sp1 = {}
+                self.sp[n_sp_clusters] = cur_sp1
+            else:
+                cur_sp1 = self.sp[n_sp_clusters]
+                
+            if imsize not in cur_sp1:
+                cur_sp = {}
+                cur_sp1[imsize] = cur_sp
+            else:
+                cur_sp = cur_sp1[imsize]
+                
+            parallel = Parallel(n_jobs=self.n_jobs)
+            works = []
+            for mol_data in data:
+                if mol_data["id"] not in cur_sp:
+                    #cur_sp[mol_data["id"]] = self.generator_fun(mol_data["data"],n_sp_clusters,imsize)
+                    works.append(delayed(self.generator_fun)(mol_data["data"],mol_data["id"],n_sp_clusters,imsize))
+                    
+            result = parallel(works)
+            
+            for mol_id,mol_sp in result:
+                cur_sp[mol_id] = mol_sp
+            
+            if self.verbose > 0:
+                print "Generated"
+            
+        return
+    
+    def save(self,newfilename=None):
+
+        if self.readonly:
+            raise Exception("Readonly mode!")
+
+        filename = None
+        if newfilename is not None:
+            filename = newfilename
+        elif self.filename is not None:
+            filename = self.filename
+        else:
+            raise Exception("Filename not specified")
+            
+        fout = open(filename,"wb")
+        pickle.dump(self.sp,fout)
+        fout.close()
+        
+        return
+        
 
 #========================================================
 # Chemistry Dev Kit descriptors

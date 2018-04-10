@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+"""
+module qsar
+"""
 
 import os
 import copy
@@ -14,15 +17,13 @@ from sklearn.base import BaseEstimator, RegressorMixin
 import mxnet as mx
 from mxnet import gluon, nd, autograd
 
-"""
-for trainset,testset in cv.split(target_full):
-    trainset - np.array of indexed
-"""
-
 iteration = 0
 pred_result = []
 
 class FilenameIter(object):
+    """!
+    @brief Brief description
+    """
     def __init__(self, path, ext, start_index=1, n_files=-1):
         if isinstance(ext,str):
             self.ret_type = "str"
