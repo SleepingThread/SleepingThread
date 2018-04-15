@@ -1,6 +1,6 @@
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin, ClassifierMixin, clone
-from sklearn.model_selection import ShuffleSplit
+from sklearn.model_selection import ShuffleSplit, cross_val_score
 from sklearn.linear_model import LinearRegression
 
 #Group Method of Data Handling
@@ -9,10 +9,11 @@ class GMDH(BaseEstimator,RegressorMixin):
     Feature selection algorithm based on cross-validation
     """
     def __init__(self,estimator=LinearRegression(),\
-            cv=ShuffleSplit(n_splits=20,test_size=0.2,random_state=0)):
+            cv=ShuffleSplit(n_splits=20,test_size=0.2,random_state=0),max_features=6):
 
         self.estimator = estimator
         self.cv = cv
+        self.max_features = max_features
 
         self.features_list = None
         self.trainer = None
@@ -83,14 +84,16 @@ class GMDH(BaseEstimator,RegressorMixin):
                 newdata = data[:,new_features]
 
                 #train model
-                trainer = clone(self.estimator)
-                trainer.fit(newdata,target)
-                cur_acc = trainer.score(newdata,target)
+                #trainer = clone(self.estimator)
+                #trainer.fit(newdata,target)
+                #cur_acc = trainer.score(newdata,target)
+                cur_acc = np.average(cross_val_score(self.estimator,newdata,target))
 
                 if cur_acc > best_acc:
                     best_feature = fnum
                     best_acc = cur_acc
 
+            """
             #we found best feature, let's calculate cv score
 
             new_features = list(features_list)
@@ -107,13 +110,19 @@ class GMDH(BaseEstimator,RegressorMixin):
                 #we cv value decrease
                 #if cv_score_new[3]<0.97*cv_score_max:
                 break
-           
+            """
             features_list.append(best_feature)
             cv_score_old = cv_score_new
 
-            if len(features_list) >= features_amount:
+            if len(features_list) >= features_amount or \
+                    len(features_list) >= self.max_features:
                 #we select all features
                 break
+
+        self.best_acc = best_acc
+
+        #print "best_acc: ",best_acc
+        #print "features_list: ",features_list
 
         #set self.features_list
         self.features_list = features_list
