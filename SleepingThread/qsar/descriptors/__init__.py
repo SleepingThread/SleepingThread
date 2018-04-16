@@ -76,6 +76,14 @@ Code examples for openbabel:
 
 """
 
+"""
+@todo Add ver.2 of main axis for segment 
+    Add description for Special points
+    Add normal calculation
+    Add function for working with surfaces, subsurfaces
+"""
+
+
 import re
 import numpy as np
 from subprocess import check_call
@@ -471,7 +479,7 @@ def _calculateProjection(points, axis):
     
     
 
-def createSpinImage(points,imsize):
+def createSpinImage(points,imsize,add_info=False):
     image = np.zeros(imsize,dtype=np.float64)
     
     # copy points
@@ -511,7 +519,12 @@ def createSpinImage(points,imsize):
     # normalize image
     image /= image.max()
     
-    return image
+    if not add_info:
+        return image
+    else:
+        return image, points, pca.components_[0]
+
+    return None
 
 def _SPFromSegment(points,props,imsize):
     # points and props from one segment
@@ -523,9 +536,9 @@ def _SPFromSegment(points,props,imsize):
     sigma = np.average((props-average)**2)
     
     # create spin image from points
-    image = createSpinImage(points,imsize)
+    image, segm_points, main_axis = createSpinImage(points,imsize,add_info=True)
     
-    return [image,segm_center,average,sigma,props.min(),props.max()]
+    return [image,segm_center,average,sigma,props.min(),props.max(),segm_points,main_axis]
 
 def _SPFromSegmentation(points,props,segmentation,imsize):
     n_clusters = segmentation.max()+1
@@ -591,6 +604,8 @@ class SPType(object):
         spdata[0] - image
         spdata[1] - center of cluster
         spdata[2] - average property value
+        spdata[6] - special point points
+        spdata[7] - special point main axis
         
         Algorithm:
             1) Calculate clusterization of images
@@ -675,6 +690,9 @@ class SPType(object):
                     mol_sp_types.append(-1)
         
         return np.asarray(sp_types)
+
+    def getType(self,sp_list):
+        return self.predict(sp_list)
 
     def getImageType(self,sp_list):
         """
@@ -818,6 +836,11 @@ class SPGenerator(object):
     def getsp(self,data,n_sp_clusters,imsize):
         """
         data[i] = {"id":0,"data":[mol_points, mol_props]}
+
+        Output:
+            result - list of [ list of special points for molecule ]
+            result_segm - list of [property for points in molecule]
+                property for points - segment number
         """
         result = []
         result_segm = []
