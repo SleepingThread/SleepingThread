@@ -43,7 +43,9 @@ def drawSurfaces(points_list,mesh_index_list,prop_list,target,cmap=plt.get_cmap(
     """
     fileformat = "detailed" | "raw"
     """
-    
+   
+    import sys
+    import numpy as np
     from plotly import tools
     import plotly.offline as po
     import plotly.graph_objs as go
@@ -77,12 +79,12 @@ def drawSurfaces(points_list,mesh_index_list,prop_list,target,cmap=plt.get_cmap(
     maxind = -1
     for i in xrange(n):
         props = prop_list[i]
-        if propmin>props.min():
+        if propmin>np.min(props):
             minind=i
-            propmin=props.min()
-        if propmax<props.max():
+            propmin=np.min(props)
+        if propmax<np.max(props):
             maxind=i
-            propmax = props.max()
+            propmax = np.max(props)
    
     if verbose > 0:
         print "min/max: ",propmin,propmax
@@ -111,11 +113,12 @@ def drawSurfaces(points_list,mesh_index_list,prop_list,target,cmap=plt.get_cmap(
     fig['layout'].update(height=dn*400, width=600, title='Mols')
     
     if jupyter_notebook:
-        po.iplot(fig,image="png",filename="test")
+        #po.iplot(fig,image="png",filename="test")
+        po.iplot(fig)
     else:
         if fileformat == "detailed":
             po.plot(fig,filename+"("+str(start)+"-"+str(end)+").html")
-        else fileformat == "raw":
+        elif fileformat == "raw":
             po.plot(fig,filename)
 
         #po.image.save_as(fig,filename="test.png")

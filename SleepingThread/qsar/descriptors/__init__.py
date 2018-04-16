@@ -586,7 +586,8 @@ class SPType(object):
     
     def fit(self,X):
         """
-        Input: spdata = X[<molecule_ind>][<special_point_ind>]
+        type(X) = list
+        input: spdata = X[<molecule_ind>][<special_point_ind>]
         spdata[0] - image
         spdata[1] - center of cluster
         spdata[2] - average property value
@@ -675,6 +676,28 @@ class SPType(object):
         
         return np.asarray(sp_types)
 
+    def getImageType(self,sp_list):
+        """
+        Algorithm:
+            1) Find image type
+            2) Using classificator for this image type:
+                find type of property
+            3) Using dictionary:
+                find type of type pair
+        """
+        
+        im_types = []
+        for mol_sp_pts in sp_list:
+            mol_im_types = []
+            im_types.append(mol_im_types)
+            for sp in mol_sp_pts:
+                _im_type = self.image_clust_.predict([sp[0].reshape(sp[0].shape[0]*sp[0].shape[1])])[0]
+                
+                mol_im_types.append(_im_type)
+        
+        return np.asarray(im_types)
+
+
 def createDescriptors(X,sptype):
     """
     create np.ndarray(len(X),sptype.n_types_)
@@ -695,7 +718,43 @@ def createDescriptors(X,sptype):
 
 
 #========================================================
-# Work with 
+# Generate properties for molecules
+#========================================================
+
+import pickle, os
+
+def createSurfaceProperties(sel_folder,target_filename,prop_filename,verbose=1):
+    if not os.path.isfile(prop_filename):
+        print "Creating data ... "
+        points_list, mesh_index_list, prop_list, \
+                wcloud_list, weights_list, cloud_prop_list = \
+                createSelectionSurfaceProperties(sel_folder,verbose=verbose)
+
+        print " "
+        print "Saving data ... "
+        data_to_save = [points_list, mesh_index_list, prop_list, wcloud_list, \
+                weights_list, cloud_prop_list]
+
+        pickle.dump(data_to_save,open(prop_filename))
+
+    else:
+        print "Loading data ... "
+
+        # unpack data
+        points_list, mesh_index_list, prop_list, \
+                wcloud_list, weights_list, cloud_prop_list = \
+                pickle.load(open(prop_filename,"rb"))
+
+
+    # load target
+    import numpy as np
+    target = np.loadtxt(target_filename)
+
+    return points_list, mesh_index_list, prop_list, \
+            wcloud_list, weights_list, cloud_prop_list, target
+
+#========================================================
+# Work with parametrized special points
 #========================================================
 
 def createSPGeneratorData(points_list,prop_list):
@@ -719,19 +778,19 @@ def generator_fun(mol_data,mol_id,n_sp_clusters,imsize):
     segment_list = segmentSurface(points_list,prop_list,verbose=0,n_clusters=n_sp_clusters,random_state=0)
     sp_list = createSP(points_list,prop_list,segment_list,verbose=0,imsize=(imsize,imsize))
     
-    return (mol_id,sp_list[0])
+    return (mol_id,sp_list[0],segment_list[0])
 
-import pickle, os
 from sklearn.externals.joblib import Parallel, delayed
 
 class SPGenerator(object):
-    def __init__(self,generator_fun=generator_fun,filename=None,verbose=0,n_jobs=1,readonly=True):
+    def __init__(self,generator_fun=generator_fun,filename=None,segm_filename=None,verbose=0,n_jobs=1,readonly=True):
         """
         sp[<param_ind>][<imsize>][<mol_ind>] = <sp for molecule param_ind and imsize>
         generator_fun - function, that generates sp (Special point) for single molecule
         """
         self.generator_fun = generator_fun
         self.filename = filename
+        self.segm_filename = segm_filename
         self.n_jobs = n_jobs
         self.verbose = verbose
         self.readonly = readonly
@@ -744,7 +803,16 @@ class SPGenerator(object):
             fin.close()
         else:
             self.sp = {}
-            
+   
+        if segm_filename is not None and os.path.isfile(self.segm_filename):
+            fin = open(self.segm_filename,"rb")
+            if self.verbose > 0:
+                print "SPGenerator loading data ... "
+            self.segmentation = pickle.load(fin)
+            fin.close()
+        else:
+            self.segmentation = {}
+
         return
     
     def getsp(self,data,n_sp_clusters,imsize):
@@ -752,16 +820,19 @@ class SPGenerator(object):
         data[i] = {"id":0,"data":[mol_points, mol_props]}
         """
         result = []
+        result_segm = []
       
         if not self.readonly:
             self.generate(data,n_sp_clusters,imsize)
 
         cur_sp = self.sp[n_sp_clusters][imsize]
+        cur_segm = self.segmentation[n_sp_clusters]
             
         for mol_data in data:                
             result.append(cur_sp[mol_data["id"]])
+            result_segm.append(cur_segm[mol_data["id"]])
         
-        return result
+        return result,result_segm
 
     def generate(self,data,n_sp_clusters,imsize):
         """
@@ -784,6 +855,12 @@ class SPGenerator(object):
                 self.sp[n_sp_clusters] = cur_sp1
             else:
                 cur_sp1 = self.sp[n_sp_clusters]
+
+            if n_sp_clusters not in self.segmentation:
+                cur_segm = {}
+                self.segmentation[n_sp_clusters] = cur_segm
+            else:
+                cur_segm = self.segmentation[n_sp_clusters]
                 
             if imsize not in cur_sp1:
                 cur_sp = {}
@@ -800,15 +877,16 @@ class SPGenerator(object):
                     
             result = parallel(works)
             
-            for mol_id,mol_sp in result:
+            for mol_id,mol_sp,mol_segm in result:
                 cur_sp[mol_id] = mol_sp
+                cur_segm[mol_id] = mol_segm
             
             if self.verbose > 0:
                 print "Generated"
             
         return
     
-    def save(self,newfilename=None):
+    def save(self,newfilename=None,new_segmfilename=None):
 
         if self.readonly:
             raise Exception("Readonly mode!")
@@ -820,9 +898,17 @@ class SPGenerator(object):
             filename = self.filename
         else:
             raise Exception("Filename not specified")
-            
+
+        filename = None
+        if new_segmfilename is not None:
+            filename = new_segmfilename
+        elif self.segm_filename is not None:
+            filename = self.segm_filename
+        else:
+            raise Exception("Filename not specified")
+
         fout = open(filename,"wb")
-        pickle.dump(self.sp,fout)
+        pickle.dump(self.segmentation,fout)
         fout.close()
         
         return
