@@ -60,7 +60,10 @@ def drawSurfaces(points_list,mesh_index_list=None,prop_list=None,target=None,cma
     n = len(points_list)
 
     if target is None:
+        target_sort = False
         target = np.array(["None" for i in xrange(n)])
+    else:
+        target_sort = True
     
     if prop_list is None:
         prop_list = np.array([1 for i in xrange(n)])
@@ -82,7 +85,7 @@ def drawSurfaces(points_list,mesh_index_list=None,prop_list=None,target=None,cma
     dn = end-start
     
     # sort data if target specified
-    if target is not None:
+    if target_sort:
         ids = np.argsort(target)
         target = target[ids]
         points_list = points_list[ids]

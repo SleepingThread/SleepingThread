@@ -457,7 +457,7 @@ def segmentSurface(points_list,prop_list,n_clusters=10,verbose=0,scale=50.0,
         kmeans = KMeans(n_clusters=n_clusters,random_state=random_state)
         kmeans.fit(data)
         
-        segment_list.append(kmeans.labels_)
+        segment_list.append(np.asarray(kmeans.labels_))
         
     if verbose>0:
         sys.stdout.write("\n")
@@ -477,7 +477,38 @@ def _calculateProjection(points, axis):
         
     return np.asarray(projection)
     
+
+def createSpinImage1(points,imsize,axis):
+    """
+    points.shape = (-1,3) - list of segment vertices
+        This segment already centrated and normalized
+    axis.shape = (3,) - axis for projection
+    """
+    image = np.zeros(imsize,dtype=np.float64)
+
+    projection = _calculateProjection(points,axis)
+
+    xmax = projection[:,0].max()
+    xmin = 0.0
+    xmarg = 1.05*(xmax-xmin)
+    ymax = max(abs(projection[:,1].min()),abs(projection[:,1].max()))
+    ymarg = 1.05*ymax
     
+    stepx = xmarg/imsize[0]
+    stepy = 2.0*ymarg/imsize[1]
+    
+    for i in xrange(len(projection)):
+        el = projection[i]
+        xind = int(el[0]/stepx)
+        yind = int((el[1]+ymarg)/stepy)
+        
+        image[xind][yind] += 1
+    
+    # normalize image
+    image /= image.max()
+
+    return image
+
 
 def createSpinImage(points,imsize,add_info=False):
     image = np.zeros(imsize,dtype=np.float64)
@@ -774,6 +805,197 @@ def createSurfaceProperties(sel_folder,target_filename,prop_filename,verbose=1):
 #========================================================
 # Work with parametrized special points
 #========================================================
+
+from SleepingThread.surface import Surface
+import copy
+import os
+import pickle
+
+class SPGenerator1(object):
+    def __init__(self,points_list,mesh_index_list,prop_list=None,filename=None,
+            change_data=False,verbose=0):
+        if len(prop_list) > 1:
+            raise Exception("Multiple props not supported yet")
+
+        self.verbose = verbose
+        self.change_data = change_data
+        if not change_data:
+            self.points_list = np.asarray(copy.deepcopy(points_list))
+            self.mesh_index_list = np.asarray(copy.deepcopy(mesh_index_list))
+            self.prop_list = copy.deepcopy(prop_list)
+        else:
+            self.points_list = np.asarray(points_list)
+            self.mesh_index_list = np.asarray(mesh_index_list)
+            self.prop_list = prop_list
+
+        self.descriptors = None
+
+        # work with file
+        self.filename = filename
+
+        if filename is not None and os.path.isfile(filename):
+            #read from file segmentation with specified scale
+            points_list_loaded, \
+                    mesh_index_list_loaded,\
+                    self.segmentation = pickle.load(open(filename,"rb"))
+
+            if not ( points_list_loaded.tolist()==self.points_list.tolist() and \
+                    mesh_index_list_loaded.tolist()==self.mesh_index_list.tolist() ):
+                self.segmentation = {}
+
+        else:
+            self.segmentation = {}
+
+        return
+
+    def save(self):
+        if self.filename is not None:
+            pickle.dump([self.points_list,self.mesh_index_list,self.segmentation],\
+                    open(self.filename,"wb"))
+        else:
+            raise Exception("self.filename is None")
+
+        return
+
+    def generate(self,n_segments,imsize=None,scale=None):
+        
+        if len(scale) != len(self.prop_list):
+            raise Exception("unequal scale and prop_list")
+
+        # find segmentation
+        segm = self.segmentation
+        if scale[0] not in segm:
+            segm[scale[0]] = {}
+        segm = segm[scale[0]]
+
+        if n_segments not in segm:
+
+            if self.verbose>0:
+                print "Generate segmentation ... "
+
+            segm[n_segments] = {}
+            segm = segm[n_segments]
+            
+            # make segmentation
+            # segment_list = list of np.ndarray
+            segment_list = segmentSurface(self.points_list,self.prop_list[0],\
+                    verbose=0,n_clusters=n_segments,random_state=0)
+
+            segm["labels"] = segment_list
+            segm["segments"] = []
+            segm["segm_props"] = []
+            segm["sp_props"] = []
+
+            # calculate segments and its props
+            # iterate over molecules surfaces
+            for mol_ind in xrange(len(self.points_list)):
+                if self.verbose>0:
+                    sys.stdout.write("\rProcessing mol "+str(mol_ind))
+                    sys.stdout.flush()
+
+                points = self.points_list[mol_ind]
+                mesh_index = self.mesh_index_list[mol_ind]
+
+                surf = Surface(points,mesh_index)
+                segments, segm_props = surf.createSegments(segment_list[mol_ind])
+                # segm_props - store normals and centers for mol surface centers
+
+                #========================================================
+                # work with surface property (example: value of MMFF94)
+                #========================================================
+                # calculate average, min,max ... of property on surface
+                sp_props = []
+                surface_prop = np.array(self.prop_list[0][mol_ind])
+                for segm_ind in xrange(n_segments):
+                    segm_surface_prop = surface_prop[segment_list[mol_ind]==segm_ind]
+                    sp_props.append([np.average(segm_surface_prop),
+                        np.median(segm_surface_prop),
+                        np.min(segm_surface_prop),np.max(segm_surface_prop)])
+
+                #========================================================
+                # end work with surface property
+                #========================================================
+
+                segm["segments"].append(segments)
+                segm["segm_props"].append(segm_props)
+                segm["sp_props"].append(sp_props)
+
+            if self.verbose>0:
+                print " "
+                print "Segmentation generated"
+    
+        else:
+            segm = seg[n_segments]
+
+        if imsize is not None:
+
+            # create data in format:
+            # data[i] = 
+            #   {"id":mol_ind,"sp":[[image,...],...],"descriptors":[<descriptors>]}
+
+            data = []
+
+            # create and return Special Points list with images
+            # iterate over molecules surfaces
+            for mol_ind in xrange(len(self.points_list)):
+                segments = segm["segments"][mol_ind]
+                segm_props = segm["segm_props"][mol_ind]
+                # property like MMFF94
+                sp_props = segm["sp_props"][mol_ind]
+
+                mol_data = {}
+                data.append(data)
+
+                mol_data["id"] = mol_ind
+                sp_list = []
+                mol_data["sp"] = sp_list
+
+                if self.descriptors is not None:
+                    mol_data["descriptors"] = self.descriptors[mol_ind]
+
+                # iterate over segments in molecule
+                for segm_ind in xrange(n_segments):
+                    # segm_ind - label for molecule surface segment
+                    points,mesh_index = segments[segm_ind]
+                    center,normal = segm_props[segm_ind]
+                    sp_property = sp_props[segm_ind]
+
+                    image = createSpinImage1(points,(imsize,imsize),normal)
+
+                    sp_list.append([image,sp_property[0]])
+
+            return data
+
+        else:
+            return
+
+        return
+
+    def addDescriptors(self,descr_list):
+        """
+        descr_list = [<descr_1>,<descr_2>]
+        """
+       
+        if len(descr_list)==0:
+            return
+
+        descriptors = self.descriptors
+        if descriptors is None:
+            for mol_ind in xrange(len(self.points_list)):
+                descriptors.append([])
+
+        for descr_num in xrange(len(descr_list)):
+            cur_descr = descr_list[descr_num]
+
+            if len(cur_descr)!=len(sefl.points_list):
+                raise Exception("Descriptor "+str(cur_descr)+\
+                        " has inapropriate dimension")
+
+            for mol_ind in xrange(len(self.points_list)):
+                self.descriptors[mol_ind].append(cur_descr[mol_ind])
+
+        return
+
 
 def createSPGeneratorData(points_list,prop_list):
     """
