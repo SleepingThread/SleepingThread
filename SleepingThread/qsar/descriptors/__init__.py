@@ -635,8 +635,8 @@ class SPType(object):
         spdata[0] - image
         spdata[1] - center of cluster
         spdata[2] - average property value
-        spdata[6] - special point points
-        spdata[7] - special point main axis
+        spdata[6] - segments, i.e. points and mesh_index
+        spdata[7] - segm_props
         
         Algorithm:
             1) Calculate clusterization of images
@@ -812,6 +812,19 @@ import os
 import pickle
 
 class SPGenerator1(object):
+    
+    @staticmethod
+    def _compare(arr1,arr2):
+
+        if len(arr1)!=len(arr2):
+            return False
+
+        for ind in xrange(len(arr1)):
+            if not np.all(arr1[ind]==arr2[ind]):
+                return False
+
+        return True
+
     def __init__(self,points_list,mesh_index_list,prop_list=None,filename=None,
             change_data=False,verbose=0):
         if len(prop_list) > 1:
@@ -839,8 +852,11 @@ class SPGenerator1(object):
                     mesh_index_list_loaded,\
                     self.segmentation = pickle.load(open(filename,"rb"))
 
-            if not ( points_list_loaded.tolist()==self.points_list.tolist() and \
-                    mesh_index_list_loaded.tolist()==self.mesh_index_list.tolist() ):
+            if not ( SPGenerator1._compare(points_list_loaded,points_list) and \
+                    SPGenerator1._compare(mesh_index_list_loaded,mesh_index_list)):
+                if verbose>0:
+                    print "Loaded file has different surfaces"
+
                 self.segmentation = {}
 
         else:
@@ -858,7 +874,9 @@ class SPGenerator1(object):
         return
 
     def generate(self,n_segments,imsize=None,scale=None):
-        
+        """
+        """
+
         if len(scale) != len(self.prop_list):
             raise Exception("unequal scale and prop_list")
 
@@ -925,18 +943,22 @@ class SPGenerator1(object):
                 print "Segmentation generated"
     
         else:
-            segm = seg[n_segments]
+            segm = segm[n_segments]
 
         if imsize is not None:
-
             # create data in format:
             # data[i] = 
-            #   {"id":mol_ind,"sp":[[image,...],...],"descriptors":[<descriptors>]}
-
-            data = []
+            #   {"id":mol_ind,"sp":[[image,...],...],"descriptors":[<descriptors>],
+            #       "labels":[<segment labels>],"props":[<MMFF94 values>]}
 
             # create and return Special Points list with images
             # iterate over molecules surfaces
+        
+            if self.verbose>1:
+                print "Generate images ... "
+
+            data = []
+            
             for mol_ind in xrange(len(self.points_list)):
                 segments = segm["segments"][mol_ind]
                 segm_props = segm["segm_props"][mol_ind]
@@ -944,11 +966,14 @@ class SPGenerator1(object):
                 sp_props = segm["sp_props"][mol_ind]
 
                 mol_data = {}
-                data.append(data)
+                data.append(mol_data)
 
                 mol_data["id"] = mol_ind
                 sp_list = []
                 mol_data["sp"] = sp_list
+
+                mol_data["labels"] = np.array(segm["labels"][mol_ind])
+                mol_data["props"] = np.array(self.prop_list[0][mol_ind])
 
                 if self.descriptors is not None:
                     mol_data["descriptors"] = self.descriptors[mol_ind]
@@ -960,9 +985,13 @@ class SPGenerator1(object):
                     center,normal = segm_props[segm_ind]
                     sp_property = sp_props[segm_ind]
 
-                    image = createSpinImage1(points,(imsize,imsize),normal)
+                    image = createSpinImage1(points-center,(imsize,imsize),normal)
 
-                    sp_list.append([image,sp_property[0]])
+                    sp_list.append([image,np.array(center),sp_property[0],
+                        np.array(segments[segm_ind]),np.array(segm_props[segm_ind])])
+
+            if self.verbose>1:
+                print "End images generating"
 
             return data
 

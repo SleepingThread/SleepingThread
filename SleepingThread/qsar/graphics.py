@@ -4,14 +4,14 @@
 @todo Add description to drawSurfaces
 """
 
-
+import numpy as np
 import matplotlib as mpl
 from matplotlib import pyplot as plt
 from matplotlib.colors import Normalize, rgb2hex
 from matplotlib import gridspec
 
 
-def drawImages(images,target,scale=4,width=6,cmap=plt.get_cmap("gray_r"),textcolor='black',fontsize=12,l=-1,filename=None):
+def drawImages(images,target=None,scale=4,width=6,cmap=plt.get_cmap("gray_r"),textcolor='black',fontsize=12,l=-1,filename=None,descriptions_list=None,start=-1,end=-1):
     """
     images - list of np.array((image_height,image_width))
     target - labels for each image
@@ -19,20 +19,48 @@ def drawImages(images,target,scale=4,width=6,cmap=plt.get_cmap("gray_r"),textcol
     if l == -1:
         l = len(images)
 
-    fig = plt.figure(figsize=(width,width*l))
+    if start == -1:
+        start = 0
+    if end == -1:
+        end = l
+
+    if target is None:
+        target_sort = False
+        target = np.array(["None" for i in xrange(l)])
+    else:
+        target_sort = True
+
+    if descriptions_list is None:
+        descriptions_list = np.array(["" for i in xrange(l)])
+
+    images = np.asarray(images)
+    descriptions_list = np.asarray(descriptions_list)
+    target = np.asarray(target)
+
+    if target_sort:
+        ids = np.argsort(target)
+        target = target[ids]
+        descriptions_list = descriptions_list[ids]
+        images = images[ids]
+
+    # amount of images for drawing
+    dn = end-start
+
+    fig = plt.figure(figsize=(width,width*dn))
     imagemax = np.max(images)
     imagemin = np.min(images)
     
     norm = Normalize(vmin=imagemin,vmax=imagemax)
-    
-    grid = gridspec.GridSpec(scale*l+1,1)
+   
+    grid = gridspec.GridSpec(scale*dn+1,1)
     axarr = []
     axarr.append(fig.add_subplot(grid[0:scale,0]))
-    axarr.extend([fig.add_subplot(grid[scale*i:scale*(i+1),0],sharex=axarr[0]) for i in xrange(1,l)])
-    axarr.append(fig.add_subplot(grid[scale*l:scale*l+1]))
-    for i in xrange(l):
+    axarr.extend([fig.add_subplot(grid[scale*i:scale*(i+1),0],sharex=axarr[0]) for i in xrange(1,dn)])
+    axarr.append(fig.add_subplot(grid[scale*dn:scale*dn+1]))
+    for i in xrange(start,start+dn):
         axarr[i].imshow(images[i],norm=norm,cmap=cmap)
-        axarr[i].text(0.5,0.95,str(target[i])+" | "+str(i),transform=axarr[i].transAxes,color='black',fontsize=12,weight='bold')
+        text = str(target[i])+" | "+str(i)+" | "+str(descriptions_list[i])
+        axarr[i].text(0.5,0.95,text,transform=axarr[i].transAxes,color='black',fontsize=12,weight='bold')
     
     mpl.colorbar.ColorbarBase(axarr[-1],cmap=cmap,norm=norm,orientation='horizontal')
     fig.tight_layout()
@@ -45,13 +73,12 @@ def drawImages(images,target,scale=4,width=6,cmap=plt.get_cmap("gray_r"),textcol
     return
 
 def drawSurfaces(points_list,mesh_index_list=None,prop_list=None,target=None,cmap=plt.get_cmap('jet'),start=-1,end=-1,jupyter_notebook=True,filename="test",verbose=0,fileformat="detailed",
-        scattermode=False,singlefigure=False,draw=True):
+        scattermode=False,singlefigure=False,draw=True,descriptions_list=None):
     """
     fileformat = "detailed" | "raw"
     """
    
     import sys
-    import numpy as np
     from plotly import tools
     import plotly.offline as po
     import plotly.graph_objs as go
@@ -67,11 +94,19 @@ def drawSurfaces(points_list,mesh_index_list=None,prop_list=None,target=None,cma
     
     if prop_list is None:
         prop_list = np.array([1 for i in xrange(n)])
+    else:
+        # check dims
+        for i in xrange(n):
+            if len(prop_list[i])!=len(points_list[i]):
+                raise Exception("prop_list and points_list different dims")
 
     if mesh_index_list is None:
         if not scattermode:
             raise Exception("mesh_index_list = None with scattermode must be True")
         mesh_index_list = np.array([[1] for i in xrange(n)])
+
+    if descriptions_list is None:
+        descriptions_list = np.array(["" for i in xrange(n)])
 
     if jupyter_notebook:
         init_notebook_mode(connected=True)
@@ -91,6 +126,7 @@ def drawSurfaces(points_list,mesh_index_list=None,prop_list=None,target=None,cma
         points_list = points_list[ids]
         mesh_index_list = mesh_index_list[ids]
         prop_list = prop_list[ids]
+        descriptions_list = descriptions_list[ids]
     
     # create color map for prop_list
     # find min,max
@@ -120,8 +156,10 @@ def drawSurfaces(points_list,mesh_index_list=None,prop_list=None,target=None,cma
         vertex_colors = [[rgb2hex(cmap(0.5)) for val in points_list[i]] for i in xrange(start,end)]
 
     if not singlefigure:
+        titles = [str(target[i])+" | "+str(i)+" | "+descriptions_list[i] \
+                for i in xrange(start,end)]
         fig = tools.make_subplots(dn,1,\
-                                  subplot_titles=[str(target[i])+" | "+str(i) for i in xrange(start,end)],\
+                                  subplot_titles=titles,\
                                   specs=dn*[[{'is_3d':True}]],shared_xaxes=True,\
                                   vertical_spacing=0.1/n,print_grid=False)
     else:
@@ -135,10 +173,11 @@ def drawSurfaces(points_list,mesh_index_list=None,prop_list=None,target=None,cma
         sys.stdout.write("\r"+str(i)+" mol")
         if not scattermode:
             ids = mesh_index_list[i].reshape((-1,3))
+            text = str(target[i])+" | "+str(i)+" | "+descriptions_list[i]
             mesh = go.Mesh3d(x = pts[:,0],y=pts[:,1],z=pts[:,2],\
                                        i=ids[:,0],j=ids[:,1],k=ids[:,2],\
                                        vertexcolor=vertex_colors[i-start],\
-                                       text=str(target[i])+" | "+str(i), name="")
+                                       text=text, name="")
             if not singlefigure:
                 fig.append_trace(mesh,i-start+1,1)
             else:
