@@ -212,10 +212,37 @@ def drawSurfaces(points_list,mesh_index_list=None,prop_list=None,target=None,cma
 def drawColorMap(vmin,vmax,figsize=(12,1),cmap=plt.get_cmap('jet'),filename=None):
     fig = plt.figure(figsize=(12,1))
     norm = Normalize(vmin=vmin,vmax=vmax)
-    mpl.colorbar.ColorbarBase(fig.gca(),cmap=cmape,norm=norm,orientation='horizontal')
+    mpl.colorbar.ColorbarBase(fig.gca(),cmap=cmap,norm=norm,orientation='horizontal')
     if filename is None:
         plt.show()
     else:
         fig.savefig(filename,dpi=96)
 
     return
+
+def drawBar(a,n_segments=10):
+    """
+    a - array like object with numerical elements
+    n_segments - number of segments to split a values
+    """
+
+    minval = np.min(a)
+    maxval = np.max(a)
+    
+    width = (maxval-minval)
+    minval -= 0.025*width
+    maxval += 0.025*width
+    width = (maxval-minval)
+    step = width/n_segments
+    
+    centers = np.arange(minval+0.5*step,maxval,step)
+    counts = [0 for i in xrange(n_segments)]
+    
+    for el in a:
+        counts[int((el-minval)/step)] += 1
+        
+    plt.bar(centers,counts)
+    plt.show()
+    
+    return
+

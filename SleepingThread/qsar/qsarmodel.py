@@ -228,7 +228,8 @@ class QSARModel1(BaseEstimator, RegressorMixin):
         
         po.iplot(draw_res[2])
                
-        return
+        # return min and max props
+        return draw_res[0],draw_res[1]
     
     def drawImages(self,X,image_label=None,single_label=None,start=-1,end=-1):
         """

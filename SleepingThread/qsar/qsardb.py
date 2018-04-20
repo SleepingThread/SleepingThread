@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import sys
 import os
 import numpy as np
 import pandas as pd
@@ -25,7 +26,7 @@ def readCompounds(filename):
 
     return res
 
-def createMolDict(mol_dict,steps=500):
+def createMolDict(mol_dict,steps=500,verbose=0):
     """
     Creates 3d coordinates from InChI using openbabel mmff94
     mol_dict [in] - dict where values - InChI strings
@@ -50,6 +51,10 @@ def createMolDict(mol_dict,steps=500):
     new_dict = {}
 
     for key in mol_dict:
+        if verbose>0:
+            sys.stdout.write("\rProcess: "+str(key))
+            sys.stdout.flush()
+
         mol = openbabel.OBMol()
         conv.ReadString(mol,mol_dict[key])
 
@@ -67,13 +72,16 @@ def createMolDict(mol_dict,steps=500):
     #conv.SetOutFormat("mol")
     #conv.WriteFile(mol,"test.mol")
 
+    if verbose>0:
+        print " "
+
     return new_dict
 
-def createSelection(type,mol_dict,path):
+def writeSelection(sel_type,mol_dict,path):
     """
     Create and save files from dictionary of molecules
     mol_dict [in] - dictionary, values = <openbabel.OBMol>
-    type [in] - 
+    sel_type [in] - 
         1) one_mol_one_file - 
             create mol file with name <path>/<key>.mol
             for each molecule
@@ -81,7 +89,7 @@ def createSelection(type,mol_dict,path):
 
     return: nothing
     """
-    if type=="one_mol_one_file":
+    if sel_type=="one_mol_one_file":
         #filename = <id>.mol
 
         #create path if not exists
@@ -175,4 +183,5 @@ def readDescriptors(path,folder_list,col_name="from_csv"):
 
     table = table.astype(np.float32)
 
-    return table 
+    return table
+

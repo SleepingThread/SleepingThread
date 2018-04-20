@@ -200,7 +200,11 @@ def centrateData(points,weights):
 
     return points,center
 
-def calculateMMFF94(points,mol_file,ffname="mmff94"):
+def calculateMMFF94(points,mol_file,ffname="mmff94",
+        prop_type="El",prob_type="1",prob_charge=1):
+    """
+    prop_type [in] = El | ElVDW | VDW
+    """
     #calculate MMFF94 values in points
     mol = read_mol(mol_file)
     ff = openbabel.OBForceField.FindForceField(ffname)
@@ -213,7 +217,8 @@ def calculateMMFF94(points,mol_file,ffname="mmff94"):
 
     for point in points:
         #what calculated, probe atom type, partial charge, probe atom coordinates
-        prop.append(ff.calculateEl_VDW("El","1",1,point[0],point[1],point[2]))
+        prop.append(ff.calculateEl_VDW(prop_type,\
+                prob_type,prob_charge,point[0],point[1],point[2]))
 
     return prop
 
@@ -301,7 +306,8 @@ def buildImage(cloud,weights,prop,normal,imsize):
 
     return image, image2
 
-def createMolSurfaceProperties(points_filename,mesh_index_filename,mol_filename):
+def createMolSurfaceProperties(points_filename,mesh_index_filename,mol_filename,
+        prop_type="El",prob_type="1",prob_charge=1):
     #read mesh_index, read points
     mesh_index = read_mesh_index(mesh_index_filename)
     points = read_points(points_filename)
@@ -320,14 +326,16 @@ def createMolSurfaceProperties(points_filename,mesh_index_filename,mol_filename)
     #pca.components_[0] - the first componenet - normal for image building
     
     #calculate mmff94 for mesh vertices
-    prop = calculateMMFF94(points,mol_filename)
+    prop = calculateMMFF94(points,mol_filename,prop_type=prop_type,
+            prob_type=prob_type,prob_charge=prob_charge)
     
     #calculate mmff94 for centers of triangles (mesh faces)
     cloud_prop = calculateCloudMMFF94(prop,mesh_index)
     
     return points, mesh_index, prop, wcloud, weights, cloud_prop
 
-def createSelectionSurfaceProperties(path,verbose=0):
+def createSelectionSurfaceProperties(path,verbose=0,
+        prop_type="El",prob_type="1",prob_charge=1):
     """
     """
     import sys
@@ -342,7 +350,8 @@ def createSelectionSurfaceProperties(path,verbose=0):
         if verbose>0:
             sys.stdout.write("\r"+fn[2])
             sys.stdout.flush()
-        points, mesh_index, prop, wcloud, weights, cloud_prop = createMolSurfaceProperties(fn[0],fn[1],fn[2])
+        points, mesh_index, prop, wcloud, weights, cloud_prop = \
+                createMolSurfaceProperties(fn[0],fn[1],fn[2],prop_type=prop_type,prob_type=prob_type,prob_charge=prob_charge)
         points_list.append(np.asarray(points))
         mesh_index_list.append(np.asarray(mesh_index))
         prop_list.append(np.asarray(prop))
@@ -772,12 +781,14 @@ def createDescriptors(X,sptype):
 
 import pickle, os
 
-def createSurfaceProperties(sel_folder,target_filename,prop_filename,verbose=1):
+def createSurfaceProperties(sel_folder,target_filename,prop_filename,verbose=1,
+        prop_type="El",prob_type="1",prob_charge=1):
     if not os.path.isfile(prop_filename):
         print "Creating data ... "
         points_list, mesh_index_list, prop_list, \
                 wcloud_list, weights_list, cloud_prop_list = \
-                createSelectionSurfaceProperties(sel_folder,verbose=verbose)
+                createSelectionSurfaceProperties(sel_folder,verbose=verbose,
+                        prop_type=prop_type,prob_type=prob_type,prob_charge=prob_charge)
 
         print " "
         print "Saving data ... "
@@ -1235,17 +1246,22 @@ def _readFeatures(filepath):
 
 
 def createQSARPROJECTDescriptors(inputfile,mol_amount,
-        maxchainlength=4,marker="n",distmethod="none"):
+        maxchainlength=4,marker="n",distmethod="none",trainset=None):
     """
     inputfile [in]: input file for selection (.qp_input file)
     marker [in]: "n" - none, "m" - multiplicity
+    distmethod [in]: "none","silhouette_simple","silhouette_unique","without_distances"
     return: list of numpy arrays of features
     """
     trainsetfilepath = "/dev/shm/trainset"
     trainsetfile = open(trainsetfilepath,"w")
     #create trainset file
-    for mol_num in xrange(mol_amount):
+    if trainset is None:
+        trainset = range(mol_amount)
+
+    for mol_num in trainset:
         trainsetfile.write(str(mol_num)+" ")
+
     trainsetfile.close()
 
     featuresfilepath = "/dev/shm/features"
