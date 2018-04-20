@@ -27,7 +27,7 @@ def createQSARPROJECTInput(input_filename,
 
     return
 
-def splitSDF(sdf_filename,sel_folder):
+def splitSDF(sdf_filename,sel_folder,verbose=0):
     """
     """
 
@@ -40,6 +40,8 @@ def splitSDF(sdf_filename,sel_folder):
     conv.SetOutFormat("mol")
 
     mol = openbabel.OBMol()
+    if verbose>0:
+        print "Process 1"
     sdf_not_empty = conv.ReadFile(mol,sdf_filename)
 
     _counter = 1
@@ -50,12 +52,16 @@ def splitSDF(sdf_filename,sel_folder):
         conv.WriteFile(mol,mol_filename)
         conv.CloseOutFile()
 
+        if verbose>0:
+            print "Process: "+str(_counter)
+
         sdf_not_empty = conv.Read(mol)
 
     return
 
 
-def prepareSelectionQSARDB(qdb_folder,values_filename,sel_folder,steps=10000,verbose=0):
+def prepareSelectionQSARDB(qdb_folder,values_filename,sel_folder,steps=10000,
+        verbose=0, with_hydrogens=True):
     """
     steps [in] - amount of steps for 3d structure optimization
 
@@ -78,7 +84,8 @@ def prepareSelectionQSARDB(qdb_folder,values_filename,sel_folder,steps=10000,ver
     values_filename = os.path.abspath(values_filename)
 
     compounds = qdb.readCompounds(qdb_folder+"/compounds/compounds.xml")
-    molecules = qdb.createMolDict(compounds,steps=steps,verbose=verbose)
+    molecules = qdb.createMolDict(compounds,steps=steps,verbose=verbose,\
+            with_hydrogens=with_hydrogens)
     qdb.writeSelection("one_mol_one_file",molecules,sel_folder)
     qdb.concatenateMols(sel_folder)
     shutil.copyfile(values_filename,sel_folder+"/values")
@@ -89,7 +96,7 @@ def prepareSelectionQSARDB(qdb_folder,values_filename,sel_folder,steps=10000,ver
 
     return
 
-def prepareSelectionSDF(sdf_filename,values_filename,sel_folder):
+def prepareSelectionSDF(sdf_filename,values_filename,sel_folder,verbose=0):
     """
     """
 
@@ -100,7 +107,7 @@ def prepareSelectionSDF(sdf_filename,values_filename,sel_folder):
     sel_folder = os.path.abspath(sel_folder)
  
     # split sdf_filename and write it to sel_folder
-    splitSDF(sdf_filename,sel_folder)
+    splitSDF(sdf_filename,sel_folder,verbose=verbose)
 
     # copy sdf file and values file
     shutil.copyfile(sdf_filename,sel_folder+"/selection.sdf")

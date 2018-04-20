@@ -26,7 +26,7 @@ def readCompounds(filename):
 
     return res
 
-def createMolDict(mol_dict,steps=500,verbose=0):
+def createMolDict(mol_dict,steps=500,verbose=0,with_hydrogens=True):
     """
     Creates 3d coordinates from InChI using openbabel mmff94
     mol_dict [in] - dict where values - InChI strings
@@ -58,10 +58,12 @@ def createMolDict(mol_dict,steps=500,verbose=0):
         mol = openbabel.OBMol()
         conv.ReadString(mol,mol_dict[key])
 
-        #create 3D
+        # create 3D
         builder.Build(mol)
 
-        mol.AddHydrogens()
+        # add hydrogens
+        if with_hydrogens:
+            mol.AddHydrogens()
 
         ff.Setup(mol)
         ff.SteepestDescent(steps)
