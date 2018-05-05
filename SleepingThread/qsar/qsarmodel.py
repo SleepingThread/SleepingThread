@@ -26,8 +26,9 @@ class QSARModel1(BaseEstimator, RegressorMixin):
         self.sptype = None
         self.trainer = None
         return
-       
-    def getSPList(self,X):
+      
+    @staticmethod
+    def getSPList(X):
         """
         X - SPGeneratorData
         X[i] = {"id":0,"sp":[[image, ... ],...],"descriptors":[<row of features>]}
@@ -45,7 +46,7 @@ class QSARModel1(BaseEstimator, RegressorMixin):
         X - SPGeneratorData
         X[i] = {"id":0,"sp":[[image, ... ],...],"descriptors":[<row of features>]}
         """
-        sp_list = self.getSPList(X)
+        sp_list = QSARModel1.getSPList(X)
 
         self.sptype = descr.SPType(n_image_clusters=self.n_image_clusters,n_prop_clusters=self.n_prop_clusters)
         self.sptype.fit(sp_list)
@@ -71,7 +72,7 @@ class QSARModel1(BaseEstimator, RegressorMixin):
         X - SPGeneratorData
         X[i] = {"id":0,"sp":[[images, ... ],...],"descriptors":[<row of features>]}
         """
-        sp_list = self.getSPList(X)
+        sp_list = QSARModel1.getSPList(X)
 
         mat = descr.createDescriptors(sp_list,self.sptype)
 
@@ -88,12 +89,34 @@ class QSARModel1(BaseEstimator, RegressorMixin):
 
         return self.trainer.predict(mat)
 
+    def score(self,X,y,sample_weight=None):
+        """
+        X - SPGeneratorData
+        X[i] = {"id":0,"sp":[[images, ... ],...],"descriptors":[<row of features>]}
+        """
+        sp_list = QSARModel1.getSPList(X)
+
+        mat = descr.createDescriptors(sp_list,self.sptype)
+
+        if "descriptors" in X[0]:
+            # build features_mat
+            features_list = []
+            for el in X:
+                features_list.append(el["descriptors"])
+
+            features_mat = np.array(features_list)
+
+            # concatenate mat and features_mat
+            mat = np.concatenate([mat,features_mat],axis=1)
+
+        return self.trainer.score(mat,y,sample_weight)
+
     def getImageClusterProp(self,X):
         """
         X[i] ={"id":0,"sp":[[image,...],...],"descriptors":[<row of features>],
             "labels":[<segment labels>]}
         """
-        sp_list = self.getSPList(X)
+        sp_list = QSARModel1.getSPList(X)
 
         # segm_im_types[<mol_ind>][<mol_segment_number>] = <segment_type>
         segm_im_types = self.sptype.getImageType(sp_list)
@@ -181,7 +204,7 @@ class QSARModel1(BaseEstimator, RegressorMixin):
         if image_label is None and single_label is None:
             raise Exception("image_label or single_label must be not None")
         
-        sp_list = self.getSPList(X)
+        sp_list = QSARModel1.getSPList(X)
         
         # segm_types[<mol_ind>][<mol_segment_number>] = <segment_type>
         if image_label is not None:
@@ -216,10 +239,20 @@ class QSARModel1(BaseEstimator, RegressorMixin):
                     mesh_index_list.append(mesh_index)
                     centers_list.append(center)
                     normals_list.append(normal)
-                    descriptions_list.append(str((mol_ind,sp_ind)))
                     
                     if drawprop:
-                        segm_surf_prop_list.append(np.array(surf_prop_list[mol_ind][segm_prop_list[mol_ind]==sp_ind]))
+                        # mol surface segment properties
+                        _segment_property = np.array(surf_prop_list[mol_ind][segm_prop_list[mol_ind]==sp_ind])
+                        segm_surf_prop_list.append(_segment_property)
+
+                        descriptions_list.append(str((mol_ind,sp_ind,\
+                                "%.2f"%np.average(_segment_property),  \
+                                "%.2f"%np.median(_segment_property), \
+                                "%.2f"%np.min(_segment_property),\
+                                "%.2f"%np.max(_segment_property)\
+                                )))
+                    else:
+                        descriptions_list.append(str((mol_ind,sp_ind)))
                   
         
         draw_res = graphics.drawSurfaces(points_list,mesh_index_list,segm_surf_prop_list,
@@ -237,7 +270,7 @@ class QSARModel1(BaseEstimator, RegressorMixin):
         if image_label is None and single_label is None:
             raise Exception("image_label or single_label must be not None")
         
-        sp_list = self.getSPList(X)
+        sp_list = QSARModel1.getSPList(X)
         
         # segm_types[<mol_ind>][<mol_segment_number>] = <segment_type>
         if image_label is not None:

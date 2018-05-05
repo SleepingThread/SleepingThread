@@ -160,6 +160,9 @@ class Surface(object):
 
     def createSegments(self,labels):
         """
+        return 
+            list<[ list<point>,<mesh indexes>]>,
+            list<[ center , normal ]>
         """
         
         if len(labels) != len(self.points):

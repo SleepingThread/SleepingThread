@@ -2,6 +2,8 @@
 Paste here useful metric and norm functions
 """
 
+import numpy as np
+
 def mean(y):
     """
     Input - y - array-like
@@ -89,3 +91,4 @@ def mse(x,y):
     return: mean squared error
     """
     return SSres(x,y)/len(y)
+

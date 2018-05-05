@@ -441,7 +441,7 @@ def _dataFromSurface(points,props,scale=50.0):
     return np.asarray(data)
 
 def segmentSurface(points_list,prop_list,n_clusters=10,verbose=0,scale=50.0,
-        random_state=None):
+        random_state=None,start=-1,end=-1):
     """
     return list[ list [ <cluster label for surface point> ] ]
         list[i] - list of labels
@@ -449,11 +449,17 @@ def segmentSurface(points_list,prop_list,n_clusters=10,verbose=0,scale=50.0,
     """
     mol_n = len(points_list)
     segment_list = []
-    
+   
+    if start==-1:
+        start = 0
+
+    if end==-1:
+        end=mol_n
+
     # create data
-    for molind in xrange(mol_n):
+    for molind in xrange(start,end):
         if verbose > 0:
-            sys.stdout.write("\rmol: "+str(molind))
+            sys.stdout.write("\rsegmentSurface: "+str(molind))
         points = points_list[molind]
         props = prop_list[molind]
 
@@ -795,7 +801,7 @@ def createSurfaceProperties(sel_folder,target_filename,prop_filename,verbose=1,
         data_to_save = [points_list, mesh_index_list, prop_list, wcloud_list, \
                 weights_list, cloud_prop_list]
 
-        pickle.dump(data_to_save,open(prop_filename))
+        pickle.dump(data_to_save,open(prop_filename,"wb"))
 
     else:
         print "Loading data ... "
@@ -908,7 +914,7 @@ class SPGenerator1(object):
             # make segmentation
             # segment_list = list of np.ndarray
             segment_list = segmentSurface(self.points_list,self.prop_list[0],\
-                    verbose=0,n_clusters=n_segments,random_state=0)
+                    verbose=self.verbose,n_clusters=n_segments,random_state=0,scale=scale[0])
 
             segm["labels"] = segment_list
             segm["segments"] = []
@@ -1203,12 +1209,18 @@ class SPGenerator(object):
 # Chemistry Dev Kit descriptors
 #========================================================
 
-def createCDKDescriptors(filenameiter,verbose=0):
+def createCDKDescriptors(filenameiter=None,sel_folder=None,verbose=0,):
     """
     filenameiter [in] - object of SleepingThread.qsar.FilenameIter class
         for iteration through all molecules for descriptor calculations
     return: list of descriptors 
     """
+
+    if filenameiter is None:
+        if sel_folder is None:
+            print "Error: sel_folder and filenameiter are None"
+
+        filenameiter = qsar.FilenameIter(sel_folder,'mol')
 
     # CDK imports
     import jpype
@@ -1217,15 +1229,22 @@ def createCDKDescriptors(filenameiter,verbose=0):
     descr_list = []
     for fn in filenameiter:
         if verbose>0:
-            print "CDK filename: ",fn
+            sys.stdout.write("\rCDK filename: "+str(fn))
         fis = jpype.java.io.FileInputStream(fn)
         reader = cdk.cdk.io.MDLV2000Reader(fis)
         tmpmol = reader.read(cdk.cdk.AtomContainer())
         reader.close()
         mol = cdk.Molecule(tmpmol)
         descr_list.append(mol.calcdesc())
-    
-    return descr_list
+  
+    if verbose>0:
+        sys.stdout.write("\n")
+
+    # clean descr_list from nans
+    from SleepingThread.data import removeNAN
+    cdk_table = removeNAN(descr_list).values
+
+    return cdk_table
 
 #========================================================
 # QSARPROJECT descriptors
@@ -1244,6 +1263,13 @@ def _readFeatures(filepath):
 
     return data_full
 
+
+def getSDFSize(sdffilename):
+    fin = open(sdffilename,"r")
+    mol_amount = len(fin.read().split("$$$$"))-1
+    fin.close()
+
+    return mol_amount
 
 def createQSARPROJECTDescriptors(inputfile,mol_amount,
         maxchainlength=4,marker="n",distmethod="none",trainset=None):
