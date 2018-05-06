@@ -40,7 +40,31 @@ class QSARModel1(BaseEstimator, RegressorMixin):
             sp_list.append(el["sp"])        
         
         return sp_list
-        
+       
+    def getMatrix(self,X):
+        """
+        X - SPGeneratorData
+        return md - matrix
+        """
+        sp_list = QSARModel1.getSPList(X)
+
+        self.sptype = descr.SPType(n_image_clusters=self.n_image_clusters,n_prop_clusters=self.n_prop_clusters)
+        self.sptype.fit(sp_list)
+        mat = descr.createDescriptors(sp_list,self.sptype)
+       
+        if "descriptors" in X[0]:
+            # build features_mat
+            features_list = []
+            for el in X:
+                features_list.append(el["descriptors"])
+
+            features_mat = np.array(features_list)
+
+            # concatenate mat and features_mat
+            mat = np.concatenate([mat,features_mat],axis=1)
+
+        return mat
+
     def fit(self,X,y):
         """
         X - SPGeneratorData
@@ -66,7 +90,17 @@ class QSARModel1(BaseEstimator, RegressorMixin):
         self.trainer = clone(self.estimator)
         self.trainer.fit(mat,y)
         return
-    
+   
+    def getPropClusterBonds(self,image_cluster):
+        """
+        """
+        res = self.sptype.prop_clust_[image_cluster].cluster_centers_
+        res = np.sort([el[0] for el in res])
+        output = []
+        for i in xrange(len(res)-1):
+            output.append((res[i]+res[i+1])/2.0)
+        return output
+
     def predict(self,X):
         """
         X - SPGeneratorData

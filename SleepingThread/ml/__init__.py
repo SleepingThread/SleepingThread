@@ -90,3 +90,8 @@ def ExecuteGrid(func,params):
 
     return
 
+
+#========================================================
+# SVM with zero norm from Alexey Shestov <github: nelenivy>
+#    Realization of Jason Weston "Use of the Zero-Norm with Linear Models and Kernel Methods"
+#========================================================
