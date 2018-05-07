@@ -493,7 +493,21 @@ def _calculateProjection(points, axis):
     return np.asarray(projection)
     
 
-def createSpinImage1(points,imsize,axis):
+def createSpinImage1Bonds(points,axis):
+    """
+    points.shape = (-1,3) - list of segment vertices
+        This segment already centrated and normalized
+    axis.shape = (3,) - axis for projection
+    """
+    projection = _calculateProjection(points,axis)
+
+    xmax = projection[:,0].max()
+    ymax = max(abs(projection[:,1].min()),abs(projection[:,1].max()))
+
+    return xmax,ymax
+
+
+def createSpinImage1(points,imsize,axis,xmax=None,ymax=None):
     """
     points.shape = (-1,3) - list of segment vertices
         This segment already centrated and normalized
@@ -503,10 +517,13 @@ def createSpinImage1(points,imsize,axis):
 
     projection = _calculateProjection(points,axis)
 
-    xmax = projection[:,0].max()
+    if xmax is None:
+        xmax = projection[:,0].max()
     xmin = 0.0
     xmarg = 1.05*(xmax-xmin)
-    ymax = max(abs(projection[:,1].min()),abs(projection[:,1].max()))
+   
+    if ymax is None:
+        ymax = max(abs(projection[:,1].min()),abs(projection[:,1].max()))
     ymarg = 1.05*ymax
     
     stepx = xmarg/imsize[0]
@@ -938,10 +955,20 @@ class MolSegmentator(object):
             raise Exception("No such immode "+immode)
 
         self.segm_images = []
+        
+        x_bond = float('-inf')
+        y_bond = float('-inf')
         for i in xrange(len(self.segments)):
             center,normal = self.segm_props[i]
+            cur_x_bond,cur_y_bond = \
+                    createSpinImage1Bonds(self.segments[i][0]-center,normal)
+            x_bond = max(x_bond,cur_x_bond)
+            y_bond = max(y_bond,cur_y_bond)
+
+        for i in xrange(len(self.segments)):
+            center,normal = self.segm_props[i]    
             self.segm_images.append(createSpinImage1(self.segments[i][0]-center,\
-                    (imsize,imsize),normal))
+                    (imsize,imsize),normal,xmax=x_bond,ymax=y_bond))
 
         return
 
