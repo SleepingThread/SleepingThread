@@ -72,8 +72,11 @@ def drawImages(images,target=None,scale=4,width=6,cmap=plt.get_cmap("gray_r"),te
     
     return
 
-def drawSurfaces(points_list,mesh_index_list=None,prop_list=None,target=None,cmap=plt.get_cmap('jet'),start=-1,end=-1,jupyter_notebook=True,filename="test",verbose=0,fileformat="detailed",
-        scattermode=False,singlefigure=False,draw=True,descriptions_list=None):
+def drawSurfaces(points_list,mesh_index_list=None,prop_list=None,target=None,\
+        cmap=plt.get_cmap('jet'),start=-1,end=-1,jupyter_notebook=True,\
+        filename="test",verbose=0,fileformat="detailed",
+        scattermode=False,singlefigure=False,draw=True,descriptions_list=None,\
+        true_ratio=True):
     """
     fileformat = "detailed" | "raw"
     """
@@ -180,12 +183,36 @@ def drawSurfaces(points_list,mesh_index_list=None,prop_list=None,target=None,cma
                                        text=text, name="")
             if not singlefigure:
                 fig.append_trace(mesh,i-start+1,1)
+
+                if true_ratio:
+                    _xr = np.max(pts[:,0])-np.min(pts[:,0])
+                    _yr = np.max(pts[:,1])-np.min(pts[:,1])
+                    _zr = np.max(pts[:,2])-np.min(pts[:,2])
+                    _maxr = max(_xr,_yr,_zr)
+                    _xr /= _maxr
+                    _yr /= _maxr
+                    _zr /= _maxr
+                    aratio = {'x':_xr,'y':_yr,'z':_zr}
+                    fig["layout"]["scene"+str(i-start+1)].update(aspectratio = aratio)
+
             else:
                 fig.append_trace(mesh,1,1)
         else:
             sc = go.Scatter3d(x=pts[:,0],y=pts[:,1],z=pts[:,2],mode="markers",marker=dict(size=2))
             if not singlefigure:
                 fig.append_trace(sc,i-start+1,1)
+
+                if true_ratio:
+                    _xr = np.max(pts[:,0])-np.min(pts[:,0])
+                    _yr = np.max(pts[:,1])-np.min(pts[:,1])
+                    _zr = np.max(pts[:,2])-np.min(pts[:,2])
+                    _maxr = max(_xr,_yr,_zr)
+                    _xr /= _maxr
+                    _yr /= _maxr
+                    _zr /= _maxr
+                    aratio = {'x':_xr,'y':_yr,'z':_zr}
+                    fig["layout"]["scene"+str(i-start+1)].update(aspectratio = aratio)
+
             else:
                 fig.append_trace(sc,1,1)
        

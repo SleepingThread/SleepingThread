@@ -828,6 +828,241 @@ import copy
 import os
 import pickle
 
+def normalize(vec):
+    vec /= (np.sum(vec**2))**0.5
+    return vec
+
+def _change_CS_1(points,center,normal):
+    """
+    Output:
+        points, center, normal
+    """
+        
+    # centrate points
+    points = points-center
+        
+    # select axis: [1,0,0] or [0,1,0]:
+    if normal[0]>0.75:
+        # select [0,1,0]
+        x_axis = normal
+        y_axis = normalize(np.array([0.0,1.0,0.0])-normal[1]*normal)
+    else:
+        # select [1,0,0]
+        x_axis = normal
+        y_axis = normalize(np.array([1.0,0.0,0.0])-normal[0]*normal)
+            
+    z_axis = normalize(np.cross(x_axis,y_axis))
+        
+    rot = np.array([x_axis,y_axis,z_axis])
+    rot = rot.transpose()
+        
+    points = np.dot(points,rot)
+        
+    return points,np.array([0.0,0.0,0.0]),np.array([1.0,0.0,0.0])
+
+class MolSegmentator(object):
+    def __init__(self):
+        segment_labels = None
+        
+        segments = None
+        segm_props = None
+        segm_images = None
+        
+        points = None
+        mesh_index = None
+        props = None
+        scales = None
+
+        image = None
+
+        return
+
+    def setMol(self,mol_filename,surf_filename):
+        """
+        This function must read:
+            mol file,
+            surface file
+
+        Generate force field property
+        And call self.setSurface
+        """
+        return
+
+    def setSurface(self,points,mesh_index,props,scales=None):
+        """
+        points.shape = (-1,3)
+        mesh_index.shape = (-1,)
+        props.shape = (n_props,-1)
+        scales.shape = (n_props)
+        """
+        # set inner variables
+        self.points = np.array(points)
+        self.mesh_index = np.array(mesh_index)
+        self.props = np.array(props)
+        self.scales = np.array(scales) 
+
+        return
+
+    def generateSegmentation(self,n_segments,scales=None,verbose=0):
+        """
+        Generate segmentation using n_segments and scales 
+        """
+        if scales is not None:
+            self.scales = np.array(scales)
+
+
+        # function return list < list < point labels> >
+        segment_labels_list = segmentSurface([self.points],[self.props[0]],\
+                verbose=verbose,n_clusters=n_segments,random_state=0,scale=self.scales[0])
+
+        self.segment_labels = segment_labels_list[0]
+
+        # create segment surfaces
+        surf = Surface(self.points,self.mesh_index)
+        self.segments,self.segm_props = surf.createSegments(self.segment_labels)
+
+        # segm_props: list < center and normal for segment >
+
+        return
+
+    def generateSegmentImages(self,imsize,immode="grayscale"):
+        """
+        immode - how to create image - 
+            count points, or use triangle surface area
+            use surface function equal to one (simple spin images)
+                or use some property 
+            
+        immode = grayscale | colored
+        """
+        if immode!="grayscale":
+            raise Exception("No such immode "+immode)
+
+        self.segm_images = []
+        for i in xrange(len(self.segments)):
+            center,normal = self.segm_props[i]
+            self.segm_images.append(createSpinImage1(self.segments[i][0]-center,\
+                    (imsize,imsize),normal))
+
+        return
+
+    def generateMolImage(self,imsize,immode="grayscale"):
+        """
+        immode - how to create image - 
+            count points, or use triangle surface area
+            use surface function equal to one (simple spin images)
+                or use some property 
+            
+        immode = grayscale | colored
+        """
+        if immode != "grayscale":
+            raise Exception("No such immode "+immode)
+
+        self.image = createSpinImage(self.points,(imsize,imsize))
+
+        return
+
+    def drawSurface(self,draw_segm=False,draw_prop=False,draw_segm_centers=False,marker_size=2):
+        """
+        Ability:
+            drawprop
+            drawsegmentation
+
+            draw segment centers
+        """
+        import plotly.offline as po
+        import plotly.graph_objs as go
+        from SleepingThread.qsar import graphics
+
+        if draw_prop and draw_segm:
+            raise Exception("Only one prop can be drawn")
+
+        prop_list = None
+        if draw_prop:
+            prop_list = [self.props[0]]        
+        if draw_segm:
+            prop_list = [self.segment_labels]
+
+        draw_res = graphics.drawSurfaces([self.points],[self.mesh_index],prop_list,\
+                start=0,end=1,singlefigure=False,descriptions_list=["Molecule"],\
+                draw=False)
+
+        if draw_segm_centers:
+            # add segment centers
+            fig = draw_res[2]
+            pts = []
+            for el in self.segm_props:
+                pts.append(el[0])
+            pts = np.array(pts)
+            
+            sc = go.Scatter3d(x=pts[:,0],y=pts[:,1],z=pts[:,2],mode='markers',\
+                    marker=dict(size=marker_size))
+            fig.append_trace(sc,1,1)
+
+        po.iplot(draw_res[2])
+
+        return
+
+    def drawSegments(self,start=-1,end=-1,draw_prop=False,draw_segm_centers=False,marker_size=2,singlefigure=False,inplace=False):
+        """
+        """
+        import plotly.offline as po
+        import plotly.graph_objs as go
+        from SleepingThread.qsar import graphics
+        
+        segm_points = []
+        segm_mesh_index = []
+        segm_surf_prop = []
+        for ind,el in enumerate(self.segments):
+            points = el[0]
+            center, normal = self.segm_props[ind]
+            
+            if not inplace:
+                #modify CS to normal
+                points,center,normal = _change_CS_1(points,center,normal) 
+
+            segm_points.append(points)
+            segm_mesh_index.append(el[1])
+            segm_surf_prop.append(self.props[0][self.segment_labels==ind])
+
+        if not draw_prop:
+            segm_surf_prop = None
+
+        draw_res = graphics.drawSurfaces(segm_points,segm_mesh_index,segm_surf_prop,\
+                start=start,end=end,draw=False,singlefigure=singlefigure,\
+                descriptions_list=[str(i) for i in xrange(len(self.segments))])
+
+        if draw_segm_centers:
+            # add segment centers
+            fig = draw_res[2]
+            for i in xrange(start,end):
+                center = self.segm_props[i][0]
+                sc = go.Scatter3d(x=[0.0],y=[0.0],z=[0.0],\
+                        mode="markers",marker=dict(size=marker_size))
+                fig.append_trace(sc,i-start+1,1)
+       
+        po.iplot(draw_res[2])
+
+        return draw_res[2]
+
+    def drawSegmentImages(self,start=-1,end=-1):
+        """
+        """
+        from SleepingThread.qsar import graphics
+
+        graphics.drawImages(self.segm_images,start=start,end=end,\
+                descriptions_list=[str(i) for i in xrange(len(self.segm_images))])
+
+        return
+
+    def drawMolImage(self):
+        """
+        """
+        from SleepingThread.qsar import graphics
+
+        graphics.drawImages([self.image],descriptions_list=["Molecule"])
+
+        return
+
 class SPGenerator1(object):
     
     @staticmethod
