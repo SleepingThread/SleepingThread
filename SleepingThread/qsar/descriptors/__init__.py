@@ -810,7 +810,8 @@ def createDescriptors(X,sptype):
 # Generate properties for molecules
 #========================================================
 
-import pickle, os
+import cPickle as pickle
+import os
 
 def createSurfaceProperties(sel_folder,target_filename,prop_filename,verbose=1,
         prop_type="El",prob_type="1",prob_charge=1):
@@ -851,7 +852,7 @@ def createSurfaceProperties(sel_folder,target_filename,prop_filename,verbose=1,
 from SleepingThread.surface import Surface
 import copy
 import os
-import pickle
+import cPickle as pickle
 
 def normalize(vec):
     vec /= (np.sum(vec**2))**0.5
