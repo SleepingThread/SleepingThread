@@ -71,6 +71,9 @@ def sigma(x,y):
 def dispersion(y):
     return SStot(y)
 
+def mean_dispersion(y):
+    return SStot(y)/len(y)
+
 def rmse(x,y):
     """
     x,y - array-like

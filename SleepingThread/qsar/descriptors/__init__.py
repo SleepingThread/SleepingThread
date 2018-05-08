@@ -98,6 +98,7 @@ import openbabel
 
 # local imports
 import SleepingThread.qsar as qsar
+import SleepingThread.metrics as metrics
 
 def read_mol(molfilename):
     conv = openbabel.OBConversion()
@@ -420,6 +421,7 @@ def test_createImage():
 
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans, DBSCAN
+from SleepingThread import ml
 import sys
 
 def createSklearnData(points_list,prop_list):
@@ -469,10 +471,16 @@ def segmentSurface(points_list,prop_list,n_clusters=10,verbose=0,scale=50.0,
         #dbscan.fit(data)
         #segment_list.append(dbscan.labels_)
         
-        kmeans = KMeans(n_clusters=n_clusters,random_state=random_state)
-        kmeans.fit(data)
-        
-        segment_list.append(np.asarray(kmeans.labels_))
+        #kmeans = KMeans(n_clusters=n_clusters,random_state=random_state)
+        #kmeans.fit(data)
+        kmeans = KMeans(random_state=random_state)
+        grs = ml.GrowSpeed(kmeans,{"n_clusters":range(max(5,len(points)/200),len(points)/30)}) 
+        grs.fit(data)
+
+        grs.drawScree()
+        print "Trainer_Params: ",grs.trainer_params
+
+        segment_list.append(np.asarray(grs.trainer.labels_))
         
     if verbose>0:
         sys.stdout.write("\n")
@@ -892,17 +900,36 @@ class MolSegmentator(object):
 
         image = None
 
+        # class for segmentation
+        opt = None
+
+        # amount of segments
+        n_segments = None
+
         return
 
-    def setMol(self,mol_filename,surf_filename):
+    def setMol(self,base_filename,prop_type="El",prob_type="1",prob_charge=1.0):
         """
         This function must read:
-            mol file,
-            surface file
+            <base_filename>.mol
+            <base_filename>.meshidx
+            <base_filename>.points
 
         Generate force field property
         And call self.setSurface
         """
+
+        # call setSurface
+        pt_file = base_filename+".points"
+        mi_file = base_filename+".meshidx"
+        mol_file = base_filename+".mol"
+        points,mesh_index,prop,wcloud,weights,cloud_prop = \
+                createMolSurfaceProperties(pt_file,mi_file,mol_file,
+                        prop_type=prop_type,prob_type=prob_type,\
+                        prob_charge=prob_charge)
+
+        self.setSurface(points,mesh_index,[prop])
+
         return
 
     def setSurface(self,points,mesh_index,props,scales=None):
@@ -920,7 +947,7 @@ class MolSegmentator(object):
 
         return
 
-    def generateSegmentation(self,n_segments,scales=None,verbose=0):
+    def generateSegmentation(self,n_segments=None,scales=None,verbose=0,random_state=0):
         """
         Generate segmentation using n_segments and scales 
         """
@@ -928,11 +955,28 @@ class MolSegmentator(object):
             self.scales = np.array(scales)
 
 
-        # function return list < list < point labels> >
-        segment_labels_list = segmentSurface([self.points],[self.props[0]],\
-                verbose=verbose,n_clusters=n_segments,random_state=0,scale=self.scales[0])
+        data = _dataFromSurface(self.points,self.props[0],scale=self.scales[0])
+        if n_segments is None:
+            kmeans = KMeans(random_state=random_state)
+            p_len = len(self.points)
+            opt = ml.GrowSpeed(kmeans,{"n_clusters":range(max(5,p_len/200),p_len/30)},\
+                    verbose=verbose)
+            opt.fit(data)
+            self.opt = opt
 
-        self.segment_labels = segment_labels_list[0]
+            self.segment_labels = opt.trainer.labels_
+            self.n_segments = opt.trainer_params["n_clusters"]
+        else:
+            self.n_segments = n_segments
+            kmeans = KMeans(n_clusters=n_segments,random_state=random_state)
+            kmeans.fit(data)
+
+            self.segment_labels = kmeans.labels_
+
+        # function return list < list < point labels> >
+        #segment_labels_list = segmentSurface([self.points],[self.props[0]],\
+        #        verbose=verbose,n_clusters=n_segments,random_state=0,scale=self.scales[0])
+        #self.segment_labels = segment_labels_list[0]
 
         # create segment surfaces
         surf = Surface(self.points,self.mesh_index)
@@ -940,6 +984,70 @@ class MolSegmentator(object):
 
         # segm_props: list < center and normal for segment >
 
+        return
+
+    def drawSegmentationScores(self):
+        """
+        Draw scores for different amount of segments for molecule
+        """
+        self.opt.drawScores()
+        return
+
+    def getSegmentStats(self):
+        """
+        List statistic in table mode
+        """
+        from matplotlib import pyplot as plt
+
+        fig = plt.figure()
+
+        col_delta = []
+        col_min = []
+        col_max = []
+        col_average = []
+        col_mdisp = []
+        segm_size = []
+        center_prop = []
+        for ind in xrange(len(self.segments)):
+            # get all props for segment
+            segm_surf_prop = self.props[0][self.segment_labels==ind]
+            col_mdisp.append("%.2f"%metrics.mean_dispersion(segm_surf_prop)**0.5)
+            _min = np.min(segm_surf_prop)
+            _max = np.max(segm_surf_prop)
+            col_min.append("%.2f"%_min)
+            col_max.append("%.2f"%_max)
+            col_delta.append("%.2d"%(_max-_min))
+            col_average.append("%.2f"%np.average(segm_surf_prop))
+            segm_size.append("%d"%len(segm_surf_prop))
+
+            # get segment center property
+            _center = self.segm_props[ind][0]
+            _spoints = self.segments[ind][0]
+            dist = np.asarray([np.sum((el-_center)**2) for el in _spoints])
+            _sort_args = np.argsort(dist)
+            _nearest = segm_surf_prop[_sort_args[:5]]
+            center_prop.append("%.2f"%np.average(_nearest))
+
+        table = np.array([col_mdisp,col_delta,\
+                col_min,col_max,col_average,center_prop,segm_size]).T
+
+        print "Columns:"
+        print "1 - prop sqrt(mean dispersion)"
+        print "2 - prop max-min"
+        print "3 - prop min"
+        print "4 - prop max"
+        print "5 - prop average"
+        print "6 - center prop"
+        print "7 - segm size"
+
+        plt_table = plt.table(\
+                colLabels=[str(i) for i in xrange(1,table.shape[1]+1)],\
+                rowLabels=[str(i) for i in xrange(len(self.segments))],\
+                cellText = table,loc='top')
+        #plt_table.set_fontsize(20)
+        plt_table.scale(1.5,1.5)
+        fig.axes[0].axis("off")
+        plt.show()
         return
 
     def generateSegmentImages(self,imsize,immode="grayscale"):
