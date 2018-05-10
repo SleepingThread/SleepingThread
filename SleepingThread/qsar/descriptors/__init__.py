@@ -887,26 +887,39 @@ def _change_CS_1(points,center,normal):
     return points,np.array([0.0,0.0,0.0]),np.array([1.0,0.0,0.0])
 
 class MolSegmentator(object):
-    def __init__(self):
-        segment_labels = None
-        
-        segments = None
-        segm_props = None
-        segm_images = None
-        
-        points = None
-        mesh_index = None
-        props = None
-        scales = None
+    def __init__(self,segment_property_type="average"):
+        """
+        segment_property_type = "average" | "center"
+            "average": average property through whole segment
+            "center": property near center of segment
+        """
+        self.segment_property_type = segment_property_type
 
-        image = None
+        self.segment_labels = None
+        
+        self.segments = None
+        self.segm_props = None
+        self.segm_images = None
+        
+        self.points = None
+        self.mesh_index = None
+        self.props = None
+        self.scales = None
+
+        self.image = None
 
         # class for segmentation
-        opt = None
+        self.opt = None
 
         # amount of segments
-        n_segments = None
+        self.n_segments = None
 
+        return
+
+    def setSegmentPropertyType(self,segment_property_type):
+        """
+        """
+        self.segment_property_type = segment_property_type
         return
 
     def setMol(self,base_filename,prop_type="El",prob_type="1",prob_charge=1.0):
@@ -983,6 +996,7 @@ class MolSegmentator(object):
         surf = Surface(self.points,self.mesh_index)
         self.segments,self.segm_props = surf.createSegments(self.segment_labels)
 
+        # segments: list<[ list<point>,<mesh indexes>]>
         # segm_props: list < center and normal for segment >
 
         return
@@ -993,6 +1007,35 @@ class MolSegmentator(object):
         """
         self.opt.drawScores()
         return
+
+    def getSegmentProperty(self,segm_ind,prtype=None):
+        """
+        segm_ind - segment index
+        prtype = "average" | "center"
+        """
+        segm_surf_prop = self.props[0][self.segment_labels==segm_ind]
+
+        if prtype is not None:
+            segment_property_type = prtype
+        else:
+            segment_property_type = self.segment_property_type
+
+        if segment_property_type=="center":
+            return np.average(segm_surf_prop)
+        elif segment_property_type=="average":
+            _center = self.segm_props[segm_ind][0]
+            _spoints = self.segments[segm_ind][0]
+            dist = np.asarray([np.sum((el-_center)**2) for el in _spoints])
+            _sort_args = np.argsort(dist)
+            # get 5 nearest to center properties
+            _nearest = segm_surf_prop[_sort_args[:5]]
+            
+            return np.average(_nearest)
+        else:
+            raise Exception("No such segment_property_type: "+\
+                    segment_property_type)
+
+        return 
 
     def getSegmentStats(self):
         """
@@ -1022,12 +1065,12 @@ class MolSegmentator(object):
             segm_size.append("%d"%len(segm_surf_prop))
 
             # get segment center property
-            _center = self.segm_props[ind][0]
-            _spoints = self.segments[ind][0]
-            dist = np.asarray([np.sum((el-_center)**2) for el in _spoints])
-            _sort_args = np.argsort(dist)
-            _nearest = segm_surf_prop[_sort_args[:5]]
-            center_prop.append("%.2f"%np.average(_nearest))
+            #_center = self.segm_props[ind][0]
+            #_spoints = self.segments[ind][0]
+            #dist = np.asarray([np.sum((el-_center)**2) for el in _spoints])
+            #_sort_args = np.argsort(dist)
+            #_nearest = segm_surf_prop[_sort_args[:5]]
+            center_prop.append("%.2f"%self.getSegmentProperty(ind,"center"))
 
         table = np.array([col_mdisp,col_delta,\
                 col_min,col_max,col_average,center_prop,segm_size]).T
@@ -1198,6 +1241,43 @@ class MolSegmentator(object):
         graphics.drawImages([self.image],descriptions_list=["Molecule"])
 
         return
+
+def getDataFromMolSegmentatorList(sgt_list,descriptors=None,verbose=0):
+    """
+    return data as SPGenerator1.generate
+    """
+    data = []
+    for ind,sgt in enumerate(sgt_list):
+        if verbose>0:
+            sys.stdout.write("\r Process "+str(ind)+" from "+str(len(sgt_list)))
+
+        mol_data = {}
+        data.append(mol_data)
+
+        mol_data["id"] = ind
+        sp_list = []
+        mol_data["sp"] = sp_list
+
+        mol_data["labels"] = np.array(sgt.segment_labels)
+        mol_data["props"] = np.array(sgt.props[0])
+
+        if descriptors is not None:
+            mol_data["descriptors"] = np.array(descriptors[ind])
+
+        for sind,segm in enumerate(sgt.segments):
+            
+            sp_list.append([sgt.segm_images[sind],np.array(sgt.segm_props[sind][0]),\
+                    sgt.getSegmentProperty(sind),\
+                    np.array(segm),np.array(sgt.segm_props[sind])])
+
+    if verbose>0:
+        sys.stdout.write("\n")
+
+    return data
+
+#========================================================
+#
+#========================================================
 
 class SPGenerator1(object):
     

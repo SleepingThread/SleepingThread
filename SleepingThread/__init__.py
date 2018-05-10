@@ -105,6 +105,9 @@ class Saver(object):
         self.cur_time = time.time()
         self.el_iter = 0
 
+        # iteration counter
+        self.iteration = 0
+
         # data for args iter_generator
         self.args = None
 
@@ -166,7 +169,7 @@ class Saver(object):
                 cur_obj = pickle.loads(_pickle_str)
             
             cur_file_num += 1
-            obj.append(cur_obj["obj"])
+            obj.extend(cur_obj["obj"])
 
         return
 
@@ -201,10 +204,13 @@ class Saver(object):
 
         self.args = self.args_generator.next()
 
+        self.iteration += 1
+
         if self.args is not None:
             return True
         else:
-            self.saveObj(obj)
+            if self.iteration>1:
+                self.saveObj(obj)
 
             # full restore object
             self.restoreObj(obj)
