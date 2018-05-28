@@ -33,6 +33,28 @@ def weighted_accuracy(estimator,X,y):
     
     return qual
 
+def weighted_accuracy_score(y_true,y_pred):
+    """
+    """
+    # work with labels
+    labels = []
+    for el in y_true:
+        if el not in labels:
+            labels.append(el)
+
+    labels_qual = {el:0.0 for el in labels}
+    labels_size = {el:np.sum(y_true==el) for el in labels}
+    for i in xrange(len(y_true)):
+        labels_qual[y_true[i]] += (y_pred[i]==y_true[i])
+
+    qual = 0.0
+    for key in labels_qual:
+        qual += labels_qual[key]/labels_size[key]
+
+    qual = qual/len(labels)
+
+    return qual
+
 def getNextVec(itvec,itend):
     """
     itvec,itend - array
@@ -464,6 +486,220 @@ class SVM_L0(BaseEstimator,ClassifierMixin):
 #
 #    sci-kit learn trainer
 #========================================================
+
+from sklearn.linear_model import LinearRegression
+
+def addCol(arr,vec):
+    """
+    Change arr - add column
+    """
+    arr = np.concatenate((arr,vec.reshape(-1,1)),axis=1)
+    return arr
+
+class MGUABase(BaseEstimator):
+    def __init__(self,Ct=0.8,n_comp=2,estimator=LinearRegression(),verbose=0,BUF_size=20,\
+            init_method=1,predictor_type="regr"):
+        """
+        Ct - correlation threshold
+        n_comp - number of components in linear model
+            In oehter words - model complexity
+        BUF_size - maximum number of elements in BUF
+        init_method = 1 | 2
+        predictor_type = "regr" | "binclass"
+        """
+
+        self.verbose = verbose
+
+        self.init_method = init_method
+        if init_method not in [1,2]:
+            raise Exception("Unavailable init_method value")
+
+        self.BUF1 = None
+        self.BUF1coef_ = None
+        self.BUF1intercept_ = None
+        self.BUF1qual = None
+
+        self.n_comp = n_comp
+        self.Ct = Ct
+
+        # for matrix scaling
+        self.sc = StandardScaler()
+
+        self.estimator = estimator
+
+        self.coef_ = None
+        self.intercept_ = None
+
+        return
+
+    def _isBetter(self,qual,BUFqual):
+        """
+        """
+        result = []
+        for el in BUFqual.T:
+            _res = None
+            for ind in xrange(len(qual)):
+                if qual[ind]>el[ind]:
+                    _res = True
+                    break
+                elif qual[ind]<el[ind]:
+                    _res = False
+                    break
+            
+            if _res is None:
+                _res = False
+
+            result.append(_res)
+
+        return np.array(result) 
+
+    def getQual(self,pred,target,coef_):
+        """
+        """
+        from sklearn.metrics import r2_score
+
+        if self.predictor_type == "regr":
+            # calculate r2 score
+            return np.array([r2_score(target,pred),1.0/(np.linalg.norm(coef_)+0.1)])
+        elif self.predictor_type == "binclass":
+            return np.array([weighted_quality_score(target,pred),\
+                    1.0/(np.linalg.norm(coef_)+0.1)])
+        else:
+            raise Exception("Unknown predictor_type")
+
+        return None
+
+    def insertModel(self,BUF,BUFqual,BUFcoef_,BUFintercept_,pred,coef_,intercept_,target):
+        """
+        calculate variations 
+
+        If no correlations - 
+            select BUF_size best models
+
+        If there are correlations - 
+            add if <added model> has best quality
+        """
+
+        # calculate qual
+        qual = self.getQual(pred,target,coef_)
+
+        pred = pred-intercept_
+
+        corr = abs(np.dot(BUF.T,pred)/(np.linalg.norm(BUF,axis=0)*np.linalg.norm(pred)))
+
+        inds = corr>=self.Ct
+        inds_add = inds+1
+
+        res = self._isBetter(qual,BUFqual[inds])
+        if np.all(res):
+            # qual the best solution - remove BUFqual[inds]
+            BUF = BUF[:,inds_add]
+            BUFqual = BUFqual[:,inds_add]
+            BUFcoef_ = BUFcoef_[:,inds_add]
+            BUFintercept_ = BUFintercept_[inds_add]
+
+            # check if there are space for new model
+            if BUF.shape[1]<self.BUF_size:
+                # add new model to buffers
+                BUF = addCol(BUF,pred)
+                BUFqual = addCol(BUFqual,qual)
+                BUFcoef_ = addCol(BUFcoef_,coef_)
+                BUFintercept_ = np.append(BUFintercept_,intercept_)
+            else:
+                # remove model with worst quality
+                # find worst model:
+                mininds = BUFqual[0,:]==np.min(BUFqual[0,:])
+                minind2 = np.argmin(BUFqual[1,mininds])
+                minind = mininds[minind2]
+
+                BUF[:,minind] = pred
+                BUFqual[:,minind] = qual
+                BUFcoef_[:,minind] = coef_
+                BUFintercept_[minind] = intercept_
+
+        else:
+            # ignore new model
+            pass
+
+        return
+
+    def initBuffer(self,X,y,BUF1,BUF1params_):
+        """
+        """
+        if self.init_method == 1:
+            pass
+        elif self.init_method == 2:
+            for col1_ind in xrange(X.shape[1]-1):
+                col1 = X[:,[col1_ind]]
+                for col2_ind in xrange(col1_ind+1,X.shape[1]):
+                    col2 = X[:,[col2_ind]]
+
+                    mat = np.concatenate(col1,col2,axis=1)
+
+                    trainer = clone(self.estimator)
+                    trainer.fit(X,y)
+                    pred = trainer.predict(X)
+
+                    # trainer must have
+                    self.insertModel(BUF1,BUF1coef_,BUF1intercept_,\
+                            pred,trainer.coef_,trainer.intercept_)
+
+        return
+
+    def prefit(self,X,y):
+        """
+        Function created for set class_weights for estimators, which
+            accept this property
+        """
+        #if hasattr(self.estimator,"class_weight"):
+        #    self.estimator.set_params(class_weight={})
+        return
+
+    def fit(self,X,y,n_comp):
+        """
+        How to build first BUF1?:
+            1. Build 1-complex model and continue
+            2. Iterate over all available pairs of cols in X
+        """
+
+        self.prefit(X,y)
+
+        # this step is not needed
+        X = self.sc.fit_transform(X)
+
+        # BUF1 - base buffer
+        # BUF2 - buffer, that building now
+
+        BUF1 = []
+        BUF1params_ = []
+        BUF2 = []
+        BUF2params_ = []
+ 
+        self.initBuffer(X,y,BUF1,BUF1coef_)
+
+        if self.init_method == 1:
+            n_steps = self.n_comp-1
+        elif self.init_method == 2:
+            n_steps = self.n_comp-2
+
+        for it in xrange(n_steps):
+            self.step(X,y,BUF1,BUF1coef_,BUF2,BUF2coef_)
+
+        for it in xrange(self.n_comp):
+            # build models with complexity it+1
+
+            # copy BUF1 to BUF2
+            BUF2 = BUF1
+            BUF2coef_ = BUF1coef_
+
+            # cycle: take col from X and col from BUF1
+            for buf_el in BUF1:
+                for col in X.T:
+                    pass
+
+            # add predicted to BUF2
+
+        return
 
 #========================================================
 # Selectors

@@ -58,9 +58,9 @@ def drawImages(images,target=None,scale=4,width=6,cmap=plt.get_cmap("gray_r"),te
     axarr.extend([fig.add_subplot(grid[scale*i:scale*(i+1),0],sharex=axarr[0]) for i in xrange(1,dn)])
     axarr.append(fig.add_subplot(grid[scale*dn:scale*dn+1]))
     for i in xrange(start,start+dn):
-        axarr[i].imshow(images[i],norm=norm,cmap=cmap)
+        axarr[i-start].imshow(images[i],norm=norm,cmap=cmap)
         text = str(target[i])+" | "+str(i)+" | "+str(descriptions_list[i])
-        axarr[i].text(0.5,0.95,text,transform=axarr[i].transAxes,color='black',fontsize=12,weight='bold')
+        axarr[i-start].text(0.5,0.95,text,transform=axarr[i-start].transAxes,color='black',fontsize=12,weight='bold')
     
     mpl.colorbar.ColorbarBase(axarr[-1],cmap=cmap,norm=norm,orientation='horizontal')
     fig.tight_layout()
