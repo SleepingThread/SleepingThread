@@ -5,6 +5,29 @@ import cPickle as pickle
 import zipfile
 from zipfile import ZipFile
 import os
+import sys
+import importlib
+
+def importPath(path):
+    mod_path = os.path.abspath(path)
+    mod_name = os.path.basename(path)
+   
+    try:
+        imported = importlib.import_module(mod_name)
+    except Exception:
+        pass
+    else:
+        raise Exception("Module "+mod_name+" already installed or placed in "+\
+                "the current directory - no need in importPath")
+
+    # add path into sys.path variable
+    sys.path.append(os.path.dirname(mod_path))
+    
+    imported = importlib.import_module(mod_name)
+
+    sys.path.pop()
+
+    return imported
 
 class Timer(object):
     def __init__(self):
